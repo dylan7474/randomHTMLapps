@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galaxian Clone</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #000;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        .game-container {
+            border: 2px solid #0ff;
+            box-shadow: 0 0 20px #0ff;
+            border-radius: 10px;
+            padding: 20px;
+            background-color: #0a0a0a;
+            text-align: center;
+            position: relative;
+        }
+        canvas {
+            background-color: #000;
+            border: 1px solid #0ff;
+            border-radius: 5px;
+            display: block;
+            margin: 0 auto;
+            max-width: 100%;
+            height: auto;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-crisp-edges;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        .info-bar {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 5px;
+            font-size: 16px;
+        }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2em;
+            color: #ff0;
+            text-shadow: 0 0 10px #ff0;
+            display: none;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+        button {
+            background-color: #1a1a1a;
+            border: 2px solid #0ff;
+            color: #0ff;
+            padding: 10px 20px;
+            font-family: 'Press Start 2P', cursive;
+            cursor: pointer;
+            margin-top: 15px;
+            border-radius: 5px;
+            transition: background-color 0.3s, box-shadow 0.3s;
+        }
+        button:hover {
+            background-color: #0ff;
+            color: #000;
+            box-shadow: 0 0 15px #0ff;
+        }
+        .mobile-controls {
+            display: none;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+        @media (max-width: 768px) {
+            .mobile-controls { display: flex; }
+            .info-bar { font-size: 12px; }
+            .game-container { padding: 10px; }
+        }
+        .mobile-controls button {
+            width: 80px; height: 60px; font-size: 24px;
+        }
+    </style>
+</head>
+<body class="bg-black flex items-center justify-center h-screen">
+
+    <div class="game-container">
+        <div class="info-bar">
+            <span>SCORE: <span id="score">0</span></span>
+            <span>LIVES: <span id="lives">3</span></span>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+        <button id="startButton">Start Game</button>
+        <div class="mobile-controls">
+            <button id="leftBtn">&lt;</button>
+            <button id="fireBtn">FIRE</button>
+            <button id="rightBtn">&gt;</button>
+        </div>
+        <div id="message"></div>
+    </div>
+    
+    <script>
+        // <!-- Game Setup -->
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const livesEl = document.getElementById('lives');
+        const messageEl = document.getElementById('message');
+        const startButton = document.getElementById('startButton');
+        const leftBtn = document.getElementById('leftBtn');
+        const rightBtn = document.getElementById('rightBtn');
+        const fireBtn = document.getElementById('fireBtn');
+
+        let canvasWidth = 480;
+        let canvasHeight = 540;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+
+        // <!-- Game State -->
+        let gameLoop, player, invaders, bullets, invaderBullets, particles, stars;
+        let score, lives, keys = {}, invaderDirection = 1, invaderSpeed = 0.4, isGameOver = true;
+        let lastFireTime = 0, fireCooldown = 400;
+        let lastDiveTime = 0, diveInterval = 1500;
+        let animationFrame = 0; // For invader animation
+        let lastInvaderFrameTime = 0;
+        const invaderFrameInterval = 200; // milliseconds
+
+        // <!-- Sound Effects -->
+        let laserSound, explosionSound, playerExplosionSound, diveSound, invaderHitSound;
+        let soundInitialized = false;
+
+        function initAudio() {
+            if (soundInitialized) return;
+            Tone.start();
+            laserSound = new Tone.MonoSynth({
+                oscillator: { type: 'sawtooth' },
+                envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.1 },
+                filterEnvelope: { attack: 0.005, decay: 0.05, sustain: 0, release: 0.2, baseFrequency: 800, octaves: 2.5 }
+            }).toDestination();
+            explosionSound = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.005, decay: 0.1, sustain: 0 } }).toDestination();
+            playerExplosionSound = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.005, decay: 0.3, sustain: 0 } }).toDestination();
+            diveSound = new Tone.MonoSynth({
+                oscillator: { type: 'sawtooth' },
+                envelope: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.5 },
+                filterEnvelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.5, baseFrequency: 2000, octaves: 4 }
+            }).toDestination();
+            invaderHitSound = new Tone.PluckSynth().toDestination(); // A short, sharp sound for invader hits
+            soundInitialized = true;
+        }
+
+        // <!-- Starfield Background -->
+        function createStars() {
+            stars = [];
+            for (let i = 0; i < 100; i++) {
+                stars.push({
+                    x: Math.random() * canvasWidth,
+                    y: Math.random() * canvasHeight,
+                    radius: Math.random() * 1.5,
+                    speed: Math.random() * 0.5 + 0.2
+                });
+            }
+        }
+        function updateAndDrawStars() {
+            ctx.fillStyle = 'white';
+            stars.forEach(star => {
+                star.y += star.speed;
+                if (star.y > canvasHeight) {
+                    star.y = 0;
+                    star.x = Math.random() * canvasWidth;
+                }
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        // <!-- Particle Class for Explosions -->
+        class Particle {
+            constructor(x, y, color) { this.x = x; this.y = y; this.color = color; this.radius = Math.random()*2+1; this.vx = (Math.random()-0.5)*4; this.vy = (Math.random()-0.5)*4; this.life = 20; }
+            update() { this.x += this.vx; this.y += this.vy; this.life--; }
+            draw() { ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fillStyle = this.color; ctx.fill(); }
+        }
+        function createExplosion(x, y, color) { for (let i = 0; i < 15; i++) particles.push(new Particle(x, y, color)); }
+
+        // Pixel drawing utility
+        function drawPixelArt(x, y, pixelMap, pixelSize, defaultColor) {
+            for (let row = 0; row < pixelMap.length; row++) {
+                for (let col = 0; col < pixelMap[row].length; col++) {
+                    const pixelColor = pixelMap[row][col];
+                    if (pixelColor !== ' ') { // ' ' denotes transparent
+                        ctx.fillStyle = pixelColor === 'D' ? defaultColor : pixelColor; // 'D' for default color
+                        ctx.fillRect(x + col * pixelSize, y + row * pixelSize, pixelSize, pixelSize);
+                    }
+                }
+            }
+        }
+
+        // <!-- Player Class -->
+        class Player {
+            constructor(x, y) {
+                this.x = x; this.y = y; this.width = 32; this.height = 24; this.speed = 4;
+                this.pixelMap = [
+                    [' ', ' ', ' ', ' ', ' ', 'D', 'D', ' ', ' ', ' ', ' ', ' ', ' '],
+                    [' ', ' ', ' ', ' ', ' ', 'D', 'D', ' ', ' ', ' ', ' ', ' ', ' '],
+                    [' ', ' ', ' ', ' ', 'D', 'D', 'D', 'D', ' ', ' ', ' ', ' ', ' '],
+                    [' ', ' ', ' ', 'D', 'D', 'D', 'D', 'D', 'D', ' ', ' ', ' ', ' '],
+                    [' ', ' ', 'D', 'D', 'D', 'D', 'D', 'D', 'D', 'D', ' ', ' ', ' '],
+                    [' ', 'D', 'D', 'D', 'D', 'D', 'D', 'D', 'D', 'D', 'D', ' ', ' '],
+                    ['D', 'D', 'D', 'D', 'D', 'D', 'D', 'D', 'D', 'D', 'D', 'D', 'D'],
+                    [' ', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A', ' ', ' '], // A = #FF0000 (red)
+                    [' ', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A', ' ', ' '],
+                    [' ', ' ', ' ', ' ', ' ', 'W', 'W', ' ', ' ', ' ', ' ', ' ', ' '], // W = #FFFFFF (white)
+                    [' ', ' ', ' ', ' ', ' ', 'W', 'W', ' ', ' ', ' ', ' ', ' ', ' '],
+                    [' ', ' ', ' ', ' ', ' ', 'B', 'B', ' ', ' ', ' ', ' ', ' ', ' ']  // B = #0000FF (blue)
+                ];
+                this.pixelMapColors = { 'D': '#00FF00', 'A': '#FF0000', 'W': '#FFFFFF', 'B': '#0000FF' };
+            }
+            draw() {
+                const pixelSize = 2; // Each 'pixel' in the map is 2x2 on canvas
+                drawPixelArt(this.x, this.y, this.pixelMap, pixelSize, '#00FF00'); // Default green for player
+            }
+            update() {
+                if (keys['ArrowLeft'] || keys['a']) this.x -= this.speed;
+                if (keys['ArrowRight'] || keys['d']) this.x += this.speed;
+                if (this.x < 0) this.x = 0;
+                if (this.x + this.width > canvas.width) this.x = canvas.width - this.width;
+            }
+        }
+        
+        // <!-- Bullet Class -->
+        class Bullet {
+            constructor(x, y, speed, color) { this.x = x; this.y = y; this.speed = speed; this.color = color; this.width = 4; this.height = 10; }
+            update() { this.y += this.speed; }
+            draw() { ctx.fillStyle = this.color; ctx.fillRect(this.x, this.y, this.width, this.height); }
+        }
+
+        // <!-- Invader Class -->
+        class Invader {
+            constructor(x, y, width, height, color, type) {
+                this.startX = x; this.startY = y; this.x = x; this.y = y; this.width = width; this.height = height;
+                this.color = color; this.type = type; this.alive = true; this.state = 'formation';
+                this.diveAngle = Math.random() * Math.PI * 2; this.diveSpeed = 3; this.returnPoint = null;
+                
+                // Invader pixel art patterns (example for type 0, frame 0 and 1)
+                // More patterns needed for other types and frames. Using a simplified one for now.
+                this.pixelMaps = [
+                    // Type 0 (Red/Pink Leader) - Frame 0
+                    [
+                        [' ', ' ', ' ', 'W', 'W', ' ', ' ', ' '],
+                        [' ', 'W', 'W', 'W', 'W', 'W', 'W', ' '],
+                        ['W', 'W', ' ', 'D', 'D', ' ', 'W', 'W'],
+                        ['W', 'W', 'D', 'D', 'D', 'D', 'W', 'W'],
+                        ['W', 'W', 'D', 'D', 'D', 'D', 'W', 'W'],
+                        ['W', 'W', ' ', ' ', ' ', ' ', 'W', 'W'],
+                        [' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ']
+                    ],
+                    // Type 0 (Red/Pink Leader) - Frame 1
+                    [
+                        [' ', ' ', ' ', 'W', 'W', ' ', ' ', ' '],
+                        [' ', 'W', 'W', 'W', 'W', 'W', 'W', ' '],
+                        ['W', 'W', ' ', 'D', 'D', ' ', 'W', 'W'],
+                        ['W', 'W', 'D', 'D', 'D', 'D', 'W', 'W'],
+                        ['W', 'W', 'D', 'D', 'D', 'D', 'W', 'W'],
+                        [' ', 'W', 'W', ' ', ' ', 'W', 'W', ' '],
+                        ['W', ' ', 'W', ' ', ' ', 'W', ' ', 'W']
+                    ],
+                    // Type 1 (Purple) - Frame 0
+                    [
+                        [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '],
+                        [' ', 'W', ' ', 'D', 'D', ' ', 'W', ' '],
+                        ['W', 'D', 'D', 'D', 'D', 'D', 'D', 'W'],
+                        ['W', 'W', 'W', 'D', 'D', 'W', 'W', 'W'],
+                        [' ', 'W', 'W', 'W', 'W', 'W', 'W', ' '],
+                        [' ', ' ', 'W', ' ', ' ', 'W', ' ', ' '],
+                        [' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ']
+                    ],
+                    // Type 1 (Purple) - Frame 1
+                    [
+                        [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '],
+                        [' ', 'W', ' ', 'D', 'D', ' ', 'W', ' '],
+                        ['W', 'D', 'D', 'D', 'D', 'D', 'D', 'W'],
+                        ['W', 'W', 'W', 'D', 'D', 'W', 'W', 'W'],
+                        [' ', 'W', 'W', 'W', 'W', 'W', 'W', ' '],
+                        [' ', 'W', ' ', 'W', 'W', ' ', 'W', ' '],
+                        [' ', ' ', 'W', ' ', ' ', 'W', ' ', ' ']
+                    ],
+                     // Type 2 (Blue) - Frame 0
+                    [
+                        [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '],
+                        [' ', ' ', ' ', 'W', 'W', ' ', ' ', ' '],
+                        [' ', 'W', 'W', 'D', 'D', 'W', 'W', ' '],
+                        ['W', 'W', 'D', 'D', 'D', 'D', 'W', 'W'],
+                        ['W', 'W', 'W', 'W', 'W', 'W', 'W', 'W'],
+                        [' ', 'W', ' ', ' ', ' ', ' ', 'W', ' '],
+                        ['W', ' ', ' ', ' ', ' ', ' ', ' ', 'W']
+                    ],
+                    // Type 2 (Blue) - Frame 1
+                    [
+                        [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '],
+                        [' ', ' ', ' ', 'W', 'W', ' ', ' ', ' '],
+                        [' ', 'W', 'W', 'D', 'D', 'W', 'W', ' '],
+                        ['W', 'W', 'D', 'D', 'D', 'D', 'W', 'W'],
+                        ['W', 'W', 'W', 'W', 'W', 'W', 'W', 'W'],
+                        [' ', 'W', 'W', ' ', ' ', 'W', 'W', ' '],
+                        [' ', ' ', 'W', ' ', ' ', 'W', ' ', ' ']
+                    ]
+                ];
+                this.pixelMapColors = { 'D': this.color, 'W': '#FFFFFF' };
+            }
+            draw() {
+                if (!this.alive) return;
+                const pixelSize = 4; // Each pixel in map is 4x4 on canvas
+                const currentPixelMap = this.pixelMaps[this.type * 2 + animationFrame];
+                drawPixelArt(this.x, this.y, currentPixelMap, pixelSize, this.color);
+            }
+            update() {
+                if (this.state === 'formation') {
+                    this.x += invaderSpeed * invaderDirection;
+                } else if (this.state === 'diving') {
+                    this.y += this.diveSpeed;
+                    this.x += Math.sin(this.diveAngle) * 3; // More aggressive sine wave
+                    this.diveAngle += 0.08;
+                    // If invader flies off the bottom, move it to the top and set to return
+                    if (this.y > canvas.height) {
+                        this.y = -this.height; // Place it off-screen at the top
+                        this.state = 'returning';
+                        this.returnPoint = { x: this.startX, y: this.startY };
+                    }
+                } else if (this.state === 'returning') {
+                    // Simple linear return for now, could be more complex
+                    const dx = this.returnPoint.x - this.x;
+                    const dy = this.returnPoint.y - this.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < 5) { // Close enough to original position (increased threshold)
+                        this.x = this.returnPoint.x;
+                        this.y = this.returnPoint.y;
+                        this.state = 'formation';
+                        this.returnPoint = null;
+                        this.diveAngle = Math.random() * Math.PI * 2; // Reset angle for next dive
+                    } else {
+                        this.x += (dx / dist) * this.diveSpeed * 0.7; // Slower return
+                        this.y += (dy / dist) * this.diveSpeed * 0.7;
+                    }
+                }
+            }
+        }
+
+        function triggerDive() {
+            const formationInvaders = invaders.filter(i => i.alive && i.state === 'formation');
+            if (formationInvaders.length > 0) {
+                const diver = formationInvaders[Math.floor(Math.random() * formationInvaders.length)];
+                diver.state = 'diving';
+                diver.diveAngle = Math.random() * Math.PI * 2; // Randomize initial dive angle
+            }
+        }
+
+        // <!-- Game Initialization -->
+        function init() {
+            score = 0; lives = 3; invaderSpeed = 0.4;
+            updateUI();
+            
+            player = new Player(canvas.width / 2 - 16, canvas.height - 60); // Adjust player starting X for new width
+            
+            bullets = []; invaderBullets = []; particles = [];
+            createStars();
+            
+            invaders = [];
+            const invaderRows = 4; const invaderCols = 8;
+            const invaderWidth = 32; const invaderHeight = 28; const invaderPadding = 15;
+            const invaderOffsetTop = 50; const invaderOffsetLeft = 50;
+            const rowColors = ['#F00', '#FF00FF', '#00FFFF', '#00FF00']; // Red, Pink, Blue, Green (Galaxian style)
+
+            for (let c = 0; c < invaderCols; c++) {
+                for (let r = 0; r < invaderRows; r++) {
+                    let invaderX = (c * (invaderWidth + invaderPadding)) + invaderOffsetLeft;
+                    let invaderY = (r * (invaderHeight + invaderPadding)) + invaderOffsetTop;
+                    invaders.push(new Invader(invaderX, invaderY, invaderWidth, invaderHeight, rowColors[r], r % 3)); // 3 types of invaders
+                }
+            }
+        }
+
+        // <!-- Main Game Loop -->
+        function loop() {
+            if (isGameOver) return;
+            
+            // Clear and draw background
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            updateAndDrawStars();
+
+            // Animate invaders
+            const now = Date.now();
+            if (now - lastInvaderFrameTime > invaderFrameInterval) {
+                animationFrame = 1 - animationFrame; // Toggle between 0 and 1
+                lastInvaderFrameTime = now;
+            }
+
+            // Update & Draw Game Objects
+            player.update();
+            player.draw();
+            
+            bullets.forEach((b, i) => { b.update(); b.draw(); if (b.y < 0) bullets.splice(i, 1); });
+            invaderBullets.forEach((b, i) => { b.update(); b.draw(); if (b.y > canvas.height) invaderBullets.splice(i, 1); });
+            particles.forEach((p, i) => { p.update(); p.draw(); if (p.life <= 0) particles.splice(i, 1); });
+            
+            // Update Invader Formation
+            let hitWall = false;
+            invaders.forEach(invader => {
+                invader.update();
+                invader.draw();
+                if (invader.alive && invader.state === 'formation' && (invader.x <= 0 || invader.x + invader.width >= canvas.width)) {
+                    hitWall = true;
+                }
+            });
+            if (hitWall) invaderDirection *= -1;
+
+            // Trigger dives
+            if (now - lastDiveTime > diveInterval) {
+                triggerDive();
+                lastDiveTime = now;
+            }
+
+            // Collision Detection
+            handleCollisions();
+            
+            if (invaders.every(invader => !invader.alive)) gameWin("You saved the day!");
+            gameLoop = requestAnimationFrame(loop);
+        }
+
+        function handleCollisions() {
+            // Player bullets vs Invaders
+            bullets.forEach((bullet, bIndex) => {
+                invaders.forEach(invader => {
+                    if (invader.alive && bullet.x < invader.x + invader.width && bullet.x + bullet.width > invader.x && bullet.y < invader.y + invader.height && bullet.y + bullet.height > invader.y) {
+                        createExplosion(invader.x + invader.width / 2, invader.y + invader.height / 2, invader.color);
+                        if (soundInitialized) invaderHitSound.triggerAttackRelease('C4', '8n'); // New sound for hits
+                        invader.alive = false;
+                        bullets.splice(bIndex, 1);
+                        score += invader.state === 'diving' ? 50 : 10;
+                        updateUI();
+                    }
+                });
+            });
+            // Player vs Invader Bullets
+            invaderBullets.forEach((bullet, bIndex) => {
+                if (bullet.x < player.x + player.width && bullet.x + bullet.width > player.x && bullet.y < player.y + player.height && bullet.y + bullet.height > player.y) {
+                    invaderBullets.splice(bIndex, 1);
+                    handlePlayerHit();
+                }
+            });
+            // Player vs Invaders (direct collision)
+            invaders.forEach(invader => {
+                 if (invader.alive && invader.x < player.x + player.width && invader.x + invader.width > player.x && invader.y < player.y + player.height && invader.y + invader.height > player.y) {
+                    handlePlayerHit();
+                 }
+            });
+        }
+
+        // <!-- Helper Functions -->
+        function fireBullet() {
+            const now = Date.now();
+            if (now - lastFireTime > fireCooldown) {
+                if (soundInitialized) laserSound.triggerAttackRelease('C6', '16n');
+                bullets.push(new Bullet(player.x + player.width / 2 - 2, player.y, -7, '#ff0'));
+                lastFireTime = now;
+            }
+        }
+        
+        function handlePlayerHit() {
+            if (isGameOver) return;
+            lives--;
+            updateUI();
+            if (soundInitialized) playerExplosionSound.triggerAttackRelease('8n');
+            createExplosion(player.x + player.width / 2, player.y + player.height / 2, '#f00');
+            if (lives <= 0) {
+                gameOver("Game Over");
+            } else {
+                player.x = canvas.width / 2 - 16;
+            }
+        }
+        
+        function updateUI() { scoreEl.textContent = score; livesEl.textContent = lives; }
+        function showMessage(text) { messageEl.textContent = text; messageEl.style.display = 'block'; }
+        function hideMessage() { messageEl.style.display = 'none'; }
+        function gameOver(message) { isGameOver = true; cancelAnimationFrame(gameLoop); showMessage(message); startButton.textContent = 'Play Again'; startButton.style.display = 'block'; }
+        function gameWin(message) { isGameOver = true; cancelAnimationFrame(gameLoop); showMessage(message); startButton.textContent = 'Play Again'; startButton.style.display = 'block'; }
+        
+        function startGame() {
+            initAudio();
+            isGameOver = false; init(); hideMessage(); startButton.style.display = 'none'; loop();
+        }
+
+        // <!-- Event Listeners -->
+        window.addEventListener('keydown', (e) => { keys[e.key] = true; if ((e.key===' '||e.key==='Spacebar')&&!isGameOver) { e.preventDefault(); fireBullet(); } });
+        window.addEventListener('keyup', (e) => { keys[e.key] = false; });
+        startButton.addEventListener('click', startGame);
+        leftBtn.addEventListener('touchstart', (e)=>{ e.preventDefault(); keys['ArrowLeft']=true; });
+        leftBtn.addEventListener('touchend', (e)=>{ e.preventDefault(); keys['ArrowLeft']=false; });
+        rightBtn.addEventListener('touchstart', (e)=>{ e.preventDefault(); keys['ArrowRight']=true; });
+        rightBtn.addEventListener('touchend', (e)=>{ e.preventDefault(); keys['ArrowRight']=false; });
+        fireBtn.addEventListener('click', () => { if (!isGameOver) fireBullet(); });
+        
+        showMessage("GALAXIAN CLONE");
+    </script>
+</body>
+</html>
+
