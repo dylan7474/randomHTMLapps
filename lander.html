@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lunar Lander</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #000;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        .game-container {
+            border: 2px solid #ccc;
+            box-shadow: 0 0 20px #ccc;
+            border-radius: 10px;
+            padding: 15px;
+            background-color: #0a0a1a;
+            text-align: center;
+            position: relative;
+        }
+        canvas {
+            background-color: #000;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            display: block;
+            margin: 0 auto;
+            max-width: 100%;
+            height: auto;
+        }
+        .info-bar {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 5px 20px;
+            padding: 10px 5px;
+            font-size: 14px;
+            text-align: left;
+        }
+        .info-bar span {
+            white-space: nowrap;
+        }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2em;
+            color: #ff0;
+            text-shadow: 0 0 10px #ff0;
+            display: none;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .start-button {
+            background-color: #1a1a1a;
+            border: 2px solid #4caf50;
+            color: #4caf50;
+            padding: 10px 20px;
+            font-family: 'Press Start 2P', cursive;
+            cursor: pointer;
+            margin-top: 15px;
+            border-radius: 5px;
+            transition: background-color 0.3s, box-shadow 0.3s;
+        }
+        .start-button:hover {
+            background-color: #4caf50;
+            color: #000;
+            box-shadow: 0 0 15px #4caf50;
+        }
+        .mobile-controls {
+            display: none;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+        @media (max-width: 768px) {
+            .mobile-controls { display: flex; }
+            .info-bar { font-size: 10px; grid-template-columns: repeat(2, 1fr); }
+        }
+        .mobile-controls button {
+             width: 70px; height: 50px; font-size: 20px;
+             background-color: #333; border: 2px solid #ccc; color: #ccc;
+        }
+    </style>
+</head>
+<body class="bg-black flex items-center justify-center h-screen">
+
+    <div class="game-container">
+        <div class="info-bar">
+            <span>ALT: <span id="altitude">0</span> M</span>
+            <span>FUEL: <span id="fuel">1000</span></span>
+            <span>H-SPEED: <span id="h-speed">0</span> M/S</span>
+            <span>V-SPEED: <span id="v-speed">0</span> M/S</span>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+        <button id="startButton" class="start-button">Start Game</button>
+        <div class="mobile-controls">
+            <button id="leftBtn">&lt;</button>
+            <button id="thrustBtn">^</button>
+            <button id="rightBtn">&gt;</button>
+        </div>
+        <div id="message"></div>
+    </div>
+    
+    <script>
+        // <!-- Game Setup -->
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const ui = {
+            altitude: document.getElementById('altitude'),
+            fuel: document.getElementById('fuel'),
+            hSpeed: document.getElementById('h-speed'),
+            vSpeed: document.getElementById('v-speed'),
+            message: document.getElementById('message'),
+            startButton: document.getElementById('startButton'),
+            leftBtn: document.getElementById('leftBtn'),
+            rightBtn: document.getElementById('rightBtn'),
+            thrustBtn: document.getElementById('thrustBtn'),
+        };
+
+        let canvasWidth = 600;
+        let canvasHeight = 400;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+
+        // <!-- Game State & Constants -->
+        let gameLoop, lander, terrain, particles;
+        let keys = {}, isGameOver = true, soundInitialized = false;
+        const GRAVITY = 0.002;
+        const THRUST_POWER = 0.005;
+        const ROTATION_SPEED = 0.003;
+        const SAFE_LANDING_VSPEED = 0.4;
+        const SAFE_LANDING_HSPEED = 0.4;
+        const SAFE_LANDING_ANGLE = 0.1; // Radians
+
+        // <!-- Sound Effects -->
+        let thrustSound, crashSound, successSound;
+        function initAudio() {
+            if (soundInitialized) return;
+            Tone.start();
+            thrustSound = new Tone.NoiseSynth({
+                noise: { type: 'pink' },
+                envelope: { attack: 0.1, decay: 0.1, sustain: 0.8, release: 0.1 }
+            }).toDestination();
+            thrustSound.volume.value = -20;
+
+            crashSound = new Tone.NoiseSynth({
+                noise: { type: 'white' },
+                envelope: { attack: 0.01, decay: 0.4, sustain: 0 }
+            }).toDestination();
+             crashSound.volume.value = -10;
+
+            successSound = new Tone.Synth({
+                oscillator: { type: 'sine' },
+                envelope: { attack: 0.01, decay: 0.2, sustain: 0.2, release: 0.5 }
+            }).toDestination();
+            soundInitialized = true;
+        }
+
+        // <!-- Lander Class -->
+        class Lander {
+            constructor(x, y) {
+                this.x = x; this.y = y;
+                this.vx = 0; this.vy = 0;
+                this.angle = 0; this.angleV = 0; // Angular velocity
+                this.width = 20; this.height = 20;
+                this.fuel = 1000;
+                this.thrusting = false;
+                this.crashed = false; this.landed = false;
+            }
+
+            update() {
+                if (this.crashed || this.landed) return;
+                // Apply rotation
+                this.angle += this.angleV;
+                // Apply gravity
+                this.vy += GRAVITY;
+                // Apply thrust
+                if (this.thrusting && this.fuel > 0) {
+                    this.vx += Math.sin(this.angle) * THRUST_POWER;
+                    this.vy -= Math.cos(this.angle) * THRUST_POWER;
+                    this.fuel -= 1;
+                    if(this.fuel < 0) this.fuel = 0;
+                }
+                // Update position
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                
+                // Draw lander body
+                ctx.fillStyle = '#ccc';
+                ctx.beginPath();
+                ctx.moveTo(0, -this.height / 2);
+                ctx.lineTo(-this.width / 2, this.height / 2);
+                ctx.lineTo(this.width / 2, this.height / 2);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Draw flame when thrusting
+                if (this.thrusting && this.fuel > 0 && !this.crashed) {
+                    ctx.fillStyle = `rgba(255, ${Math.random()*150+100}, 0, 0.8)`;
+                    ctx.beginPath();
+                    ctx.moveTo(0, this.height / 2);
+                    ctx.lineTo(-this.width / 3, this.height / 2 + 10 + Math.random() * 5);
+                    ctx.lineTo(this.width / 3, this.height / 2 + 10 + Math.random() * 5);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+            
+            getPoints() { // For collision detection
+                const cos = Math.cos(this.angle);
+                const sin = Math.sin(this.angle);
+                const halfW = this.width / 2;
+                const halfH = this.height / 2;
+                
+                const p1 = { x: this.x + (halfW * cos - halfH * sin), y: this.y + (halfW * sin + halfH * cos) }; // Bottom right
+                const p2 = { x: this.x + (-halfW * cos - halfH * sin), y: this.y + (-halfW * sin + halfH * cos) }; // Bottom left
+                return [p1, p2];
+            }
+        }
+        
+        // <!-- Terrain Generation -->
+        function generateTerrain() {
+            terrain = [];
+            let y = canvasHeight * (Math.random() * 0.3 + 0.6);
+            let slope = (Math.random() - 0.5) * 2;
+            
+            const padWidth = 60;
+            const padStartIndex = Math.floor(Math.random() * (canvasWidth / 10 - padWidth / 10 - 2)) + 2;
+
+            for (let x = 0; x <= canvasWidth; x += 10) {
+                if(x >= padStartIndex * 10 && x <= (padStartIndex * 10 + padWidth)) {
+                     // Flat landing pad
+                     if(terrain[terrain.length -1].isPad !== true) {
+                         y = terrain[terrain.length -1].y;
+                     }
+                     slope = 0;
+                     terrain.push({ x: x, y: y, isPad: true });
+                } else {
+                    slope += (Math.random() - 0.5) * 0.5;
+                    if(slope > 1) slope = 1;
+                    if(slope < -1) slope = -1;
+                    y += slope;
+                    if (y > canvasHeight - 20) y = canvasHeight - 20;
+                    if (y < canvasHeight / 2) y = canvasHeight / 2;
+                    terrain.push({ x: x, y: y, isPad: false });
+                }
+            }
+        }
+        
+        function drawTerrain() {
+            ctx.beginPath();
+            ctx.moveTo(0, canvasHeight);
+            terrain.forEach(p => {
+                ctx.lineTo(p.x, p.y);
+            });
+            ctx.lineTo(canvasWidth, canvasHeight);
+            ctx.closePath();
+            ctx.fillStyle = '#888';
+            ctx.fill();
+            
+            // Highlight landing pad
+            ctx.strokeStyle = '#0f0';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            let padStart = terrain.find(p => p.isPad);
+            let padEnd = terrain[terrain.findIndex(p => p.isPad) + (60/10)];
+            if(padStart && padEnd) {
+                 ctx.moveTo(padStart.x, padStart.y);
+                 ctx.lineTo(padEnd.x, padEnd.y);
+                 ctx.stroke();
+            }
+        }
+
+        // <!-- Collision Detection -->
+        function checkCollisions() {
+            const landerPoints = lander.getPoints();
+            for (let i = 0; i < terrain.length - 1; i++) {
+                const p1 = terrain[i];
+                const p2 = terrain[i+1];
+                
+                // Simple collision check with lander's bottom points
+                for(const landerPoint of landerPoints) {
+                    if (landerPoint.x > p1.x && landerPoint.x <= p2.x && landerPoint.y >= p1.y) {
+                        handleCollision(p1.isPad && p2.isPad);
+                        return;
+                    }
+                }
+            }
+            if (lander.x < 0 || lander.x > canvasWidth) gameOver("Lost in space!");
+        }
+        
+        function handleCollision(onPad) {
+            if (isGameOver) return;
+            
+            const verticalSpeedOK = Math.abs(lander.vy) < SAFE_LANDING_VSPEED;
+            const horizontalSpeedOK = Math.abs(lander.vx) < SAFE_LANDING_HSPEED;
+            const angleOK = Math.abs(lander.angle) < SAFE_LANDING_ANGLE;
+
+            if(onPad && verticalSpeedOK && horizontalSpeedOK && angleOK) {
+                lander.landed = true;
+                if(soundInitialized) successSound.triggerAttackRelease("C5", "0.5");
+                gameOver("The Eagle Has Landed!");
+            } else {
+                lander.crashed = true;
+                if(soundInitialized) crashSound.triggerAttackRelease("2n");
+                gameOver("Houston, we have a problem.");
+            }
+        }
+        
+        // <!-- Game Loop -->
+        function init() {
+            lander = new Lander(50, 50);
+            generateTerrain();
+            isGameOver = false;
+            ui.message.style.display = 'none';
+            ui.startButton.style.display = 'none';
+            if(gameLoop) cancelAnimationFrame(gameLoop);
+            loop();
+        }
+
+        function loop() {
+            if (isGameOver) {
+                 lander.thrusting = false;
+                 if(soundInitialized) thrustSound.triggerRelease();
+                 return;
+            }
+            
+            // Handle input
+            lander.angleV = 0;
+            if (keys['ArrowLeft']) lander.angleV = -ROTATION_SPEED;
+            if (keys['ArrowRight']) lander.angleV = ROTATION_SPEED;
+            
+            lander.thrusting = !!keys['ArrowUp'];
+            if(lander.thrusting && lander.fuel > 0) {
+                 if(soundInitialized && thrustSound.state !== 'started') thrustSound.triggerAttack();
+            } else {
+                 if(soundInitialized) thrustSound.triggerRelease();
+            }
+            
+            // Update & Draw
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            lander.update();
+            checkCollisions();
+            drawTerrain();
+            lander.draw();
+            updateUI();
+            
+            if (lander.fuel <= 0 && !isGameOver) {
+                gameOver("Out of Fuel!");
+            }
+            
+            gameLoop = requestAnimationFrame(loop);
+        }
+
+        // <!-- UI & Game State -->
+        function updateUI() {
+            ui.altitude.textContent = Math.max(0, canvasHeight - lander.y - 20).toFixed(0);
+            ui.fuel.textContent = lander.fuel.toFixed(0);
+            ui.hSpeed.textContent = (lander.vx * 10).toFixed(2);
+            ui.vSpeed.textContent = (lander.vy * 10).toFixed(2);
+        }
+        
+        function gameOver(message) {
+            isGameOver = true;
+            ui.message.textContent = message;
+            ui.message.style.display = 'block';
+            ui.startButton.textContent = 'Play Again';
+            ui.startButton.style.display = 'block';
+        }
+        
+        // <!-- Event Listeners -->
+        window.addEventListener('keydown', (e) => { keys[e.key] = true; });
+        window.addEventListener('keyup', (e) => { keys[e.key] = false; });
+        ui.startButton.addEventListener('click', () => { initAudio(); init(); });
+
+        ui.leftBtn.addEventListener('touchstart', e => { e.preventDefault(); keys['ArrowLeft'] = true; });
+        ui.leftBtn.addEventListener('touchend', e => { e.preventDefault(); keys['ArrowLeft'] = false; });
+        ui.rightBtn.addEventListener('touchstart', e => { e.preventDefault(); keys['ArrowRight'] = true; });
+        ui.rightBtn.addEventListener('touchend', e => { e.preventDefault(); keys['ArrowRight'] = false; });
+        ui.thrustBtn.addEventListener('touchstart', e => { e.preventDefault(); keys['ArrowUp'] = true; });
+        ui.thrustBtn.addEventListener('touchend', e => { e.preventDefault(); keys['ArrowUp'] = false; });
+
+        // Initial paint
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0,0,canvasWidth, canvasHeight);
+        generateTerrain();
+        drawTerrain();
+        lander = new Lander(50,50);
+        lander.draw();
+        updateUI();
+        ui.message.textContent = "LUNAR LANDER";
+        ui.message.style.display = 'block';
+    </script>
+</body>
+</html>
