@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Neon Penny Falls 3D</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050510;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        #top-bar {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px 40px;
+            background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%);
+        }
+        .stat-box {
+            background: rgba(10, 10, 30, 0.8);
+            border: 2px solid #ff0055;
+            border-radius: 10px;
+            padding: 10px 30px;
+            box-shadow: 0 0 15px #ff0055, inset 0 0 10px #ff0055;
+            color: #fff;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            font-family: monospace;
+            text-shadow: 0 0 10px #fff;
+        }
+        .stat-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #ffbbee;
+        }
+        #marquee {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 36px;
+            font-weight: 900;
+            color: #00ffff;
+            text-shadow: 0 0 10px #00ffff, 0 0 20px #0055ff, 0 0 40px #0055ff;
+            letter-spacing: 4px;
+        }
+        #bottom-bar {
+            text-align: center;
+            padding: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+            background: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%);
+        }
+        #loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #050510;
+            color: #00ffff;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            z-index: 100;
+            text-shadow: 0 0 20px #00ffff;
+            transition: opacity 0.5s ease;
+        }
+        .loader-spinner {
+            margin-top: 20px;
+            width: 50px;
+            height: 50px;
+            border: 5px solid transparent;
+            border-top: 5px solid #ff0055;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+    </style>
+    <!-- Load Three.js and Cannon.js via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+</head>
+<body>
+
+    <div id="loading">
+        <div>WAKING UP PHYSICS ENGINE</div>
+        <div class="loader-spinner"></div>
+    </div>
+
+    <div id="ui-layer">
+        <div id="top-bar">
+            <div class="stat-box" style="border-color: #00ffff; box-shadow: 0 0 15px #00ffff, inset 0 0 10px #00ffff;">
+                <div class="stat-value" id="score-val">0</div>
+                <div class="stat-label">Score</div>
+            </div>
+            <div id="marquee">NEON FALLS</div>
+            <div class="stat-box">
+                <div class="stat-value" id="coins-val">50</div>
+                <div class="stat-label">Coins Left</div>
+            </div>
+        </div>
+        <div id="bottom-bar">
+            Tap / Click to drop coins • Drop multiple to push!
+        </div>
+    </div>
+
+    <script>
+        // Game State
+        let score = 0;
+        let coinsLeft = 50;
+        const MAX_COINS = 250;
+        let lastDropTime = 0;
+
+        // Three.js Setup
+        let scene, camera, renderer;
+        let ghostCoin;
+        
+        // Cannon.js Setup
+        let world;
+        const coins = [];
+        let pusherBody, pusherMesh;
+
+        // Physics Materials
+        let coinMatPhys, machineMatPhys;
+
+        // Shared Geometries & Materials
+        const coinRadius = 0.8;
+        const coinThickness = 0.2;
+        let coinGeo, goldMat, silverMat;
+        let coinShape, shapeOrientation;
+
+        // Raycasting for interaction
+        const pointer = new THREE.Vector2();
+        const raycaster = new THREE.Raycaster();
+        const dropPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -2); // Horizontal plane at Y=2 for more accurate dropping
+
+        init();
+
+        function init() {
+            // 1. Initialize Three.js
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050510, 0.015);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 22, 28);
+            camera.lookAt(0, -2, 4);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            // 2. Initialize Cannon.js
+            world = new CANNON.World();
+            world.gravity.set(0, -40, 0); // Increased gravity so they snap down and stay grounded
+            world.broadphase = new CANNON.SAPBroadphase(world);
+            world.solver.iterations = 40;
+            world.solver.tolerance = 0.001;
+            world.allowSleep = false; // Disabled sleep completely to prevent coins hanging in mid-air!
+
+            // Materials
+            machineMatPhys = new CANNON.Material("machine");
+            coinMatPhys = new CANNON.Material("coin");
+
+            // Adding Stiffness and Relaxation softens the collisions so coins don't "explode" away
+            world.addContactMaterial(new CANNON.ContactMaterial(coinMatPhys, machineMatPhys, {
+                friction: 0.5,
+                restitution: 0.0,
+                contactEquationStiffness: 1e7,
+                contactEquationRelaxation: 3
+            }));
+            world.addContactMaterial(new CANNON.ContactMaterial(coinMatPhys, coinMatPhys, {
+                friction: 0.3,
+                restitution: 0.0,
+                contactEquationStiffness: 1e7,
+                contactEquationRelaxation: 3
+            }));
+
+            // 3. Build the Machine
+            createMachine();
+            setupLighting();
+            setupGhostCoin();
+
+            // 4. Pre-warm simulation
+            setTimeout(() => {
+                preWarm();
+                setupEvents();
+                animate();
+            }, 100); // Small delay to let UI render
+        }
+
+        function createMachine() {
+            const createBox = (w, h, d, x, y, z, color, isKinematic = false) => {
+                // Physics
+                const halfExtents = new CANNON.Vec3(w/2, h/2, d/2);
+                const shape = new CANNON.Box(halfExtents);
+                const body = new CANNON.Body({
+                    mass: isKinematic ? 0 : 0,
+                    type: isKinematic ? CANNON.Body.KINEMATIC : CANNON.Body.STATIC,
+                    material: machineMatPhys
+                });
+                body.addShape(shape);
+                body.position.set(x, y, z);
+                world.addBody(body);
+
+                // Graphics
+                const geo = new THREE.BoxGeometry(w, h, d);
+                const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.7, metalness: 0.3 });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.copy(body.position);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                scene.add(mesh);
+
+                return { body, mesh };
+            };
+
+            // Main Table (Bottom Level)
+            // W=18 means safe X is [-9, 9]
+            createBox(18, 2, 20, 0, -1.5, 5, 0x0a0a2a); 
+
+            // Pusher (Top Level)
+            const pusher = createBox(18, 2, 20, 0, 0.5, -9.5, 0x2a0a1a, true);
+            pusherBody = pusher.body;
+            pusherMesh = pusher.mesh;
+
+            // Back Sweeper Wall
+            // Lowered Y from 6.55 to 6.4. This makes it overlap the pusher by 0.1 units, 
+            // completely sealing the gap so coins can't get wedged underneath and "crushed" into the air!
+            createBox(18, 10, 2, 0, 6.4, -8, 0x111111);
+
+            // Side Walls (Creates gutters between table and walls)
+            // Table width is 18 (X: -9 to 9)
+            // Wall center at X: -12.5, width 2 -> Inner edge at -11.5. 
+            // Gutter is 2.5 units wide.
+            createBox(2, 10, 30, -12.5, 2.5, 5, 0x00ffff); // Left Neon Wall
+            createBox(2, 10, 30, 12.5, 2.5, 5, 0xff0055);  // Right Neon Wall
+
+            // Front Glass (Visual only)
+            const glassGeo = new THREE.BoxGeometry(22, 15, 0.5);
+            const glassMat = new THREE.MeshPhysicalMaterial({
+                color: 0x000000,
+                transparent: true,
+                opacity: 0.15,
+                roughness: 0.1,
+                metalness: 0.1
+            });
+            const glass = new THREE.Mesh(glassGeo, glassMat);
+            glass.position.set(0, 4, 15.5);
+            scene.add(glass);
+        }
+
+        function setupLighting() {
+            scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+
+            // Dramatic SpotLight
+            const spotLight = new THREE.SpotLight(0xffffff, 1.2);
+            spotLight.position.set(0, 25, -5);
+            spotLight.angle = Math.PI / 4;
+            spotLight.penumbra = 0.5;
+            spotLight.castShadow = true;
+            spotLight.shadow.mapSize.width = 1024;
+            spotLight.shadow.mapSize.height = 1024;
+            scene.add(spotLight);
+
+            // Colored Point Lights for neon metallic reflections
+            const pl1 = new THREE.PointLight(0x00ffff, 0.8, 50);
+            pl1.position.set(-12, 5, 0);
+            scene.add(pl1);
+
+            const pl2 = new THREE.PointLight(0xff0055, 0.8, 50);
+            pl2.position.set(12, 5, 0);
+            scene.add(pl2);
+        }
+
+        function setupGhostCoin() {
+            // Setup shared coin resources
+            coinGeo = new THREE.CylinderGeometry(coinRadius, coinRadius, coinThickness, 32);
+            // We removed the 90-degree visual rotation here! ThreeJS defaults to Y-axis (flat), which is exactly what we want.
+
+            goldMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, metalness: 0.9, roughness: 0.2 });
+            silverMat = new THREE.MeshStandardMaterial({ color: 0xe0e0e0, metalness: 0.9, roughness: 0.2 });
+
+            // Physics shape lowered to 12 segments. 32 segments creates razor-thin collision edges 
+            // that cause extreme math instability and "popping" in Cannon.js.
+            coinShape = new CANNON.Cylinder(coinRadius, coinRadius, coinThickness, 12);
+            shapeOrientation = new CANNON.Quaternion();
+            shapeOrientation.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 2); // Align Cannon's Z-cylinder to match Three's Y-axis
+
+            // Ghost Coin
+            const ghostMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.4 });
+            ghostCoin = new THREE.Mesh(coinGeo, ghostMat);
+            ghostCoin.position.set(0, 6, -6);
+            scene.add(ghostCoin);
+        }
+
+        function spawnCoin(x, y, z, isPrewarm = false) {
+            if (!isPrewarm && coins.length >= MAX_COINS) {
+                // Remove oldest coin to maintain performance
+                const oldest = coins.shift();
+                if (world.removeBody) world.removeBody(oldest.body);
+                else world.remove(oldest.body);
+                scene.remove(oldest.mesh);
+            }
+
+            const body = new CANNON.Body({
+                mass: 5, // Increased mass drastically to make them more stable against jitter
+                material: coinMatPhys,
+                linearDamping: 0.2, // Small amount of air resistance to stabilize
+                angularDamping: 0.9,  // High angular damping forces them to slide rather than flip
+                sleepSpeedLimit: 0.5,
+                sleepTimeLimit: 0.5
+            });
+            body.addShape(coinShape, new CANNON.Vec3(0,0,0), shapeOrientation);
+            body.position.set(x, y, z);
+            
+            // Spawn mostly flat with a tiny bit of random pitch/roll for natural stacking
+            body.quaternion.setFromEuler(
+                (Math.random() - 0.5) * 0.05, 
+                Math.random() * Math.PI * 2, 
+                (Math.random() - 0.5) * 0.05
+            );
+            
+            world.addBody(body);
+
+            const isGold = Math.random() > 0.3;
+            const mesh = new THREE.Mesh(coinGeo, isGold ? goldMat : silverMat);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+
+            if (!isPrewarm) {
+                mesh.position.copy(body.position);
+                mesh.quaternion.copy(body.quaternion);
+                scene.add(mesh);
+            }
+
+            coins.push({ body, mesh });
+        }
+
+        function preWarm() {
+            // Drop a large batch of coins onto both levels
+            for(let i = 0; i < 140; i++) {
+                let x = (Math.random() - 0.5) * 16;
+                let z = (Math.random() * 18) - 4; // Spread across pusher and table
+                // Spawn higher up! Spawning at 1.5 placed them directly INSIDE the pusher block, causing explosions.
+                let y = 4 + Math.random() * 4; 
+                spawnCoin(x, y, z, true);
+            }
+
+            // Fast-forward physics without rendering
+            for(let i = 0; i < 300; i++) {
+                world.step(1/60);
+            }
+
+            // Link visual meshes and remove any that fell out during simulation
+            for(let i = coins.length - 1; i >= 0; i--) {
+                const c = coins[i];
+                if(c.body.position.y < -1) {
+                    if (world.removeBody) world.removeBody(c.body);
+                    else world.remove(c.body);
+                    coins.splice(i, 1);
+                } else {
+                    scene.add(c.mesh);
+                    c.mesh.position.copy(c.body.position);
+                    c.mesh.quaternion.copy(c.body.quaternion);
+                }
+            }
+
+            const loader = document.getElementById('loading');
+            loader.style.opacity = '0';
+            setTimeout(() => loader.style.display = 'none', 500);
+        }
+
+        function handlePointer(clientX, clientY) {
+            pointer.x = (clientX / window.innerWidth) * 2 - 1;
+            pointer.y = -(clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(pointer, camera);
+            
+            const target = new THREE.Vector3();
+            raycaster.ray.intersectPlane(dropPlane, target);
+            
+            if (target) {
+                // Constrain X to prevent dropping completely out of bounds
+                ghostCoin.position.x = Math.max(-7.5, Math.min(7.5, target.x));
+            }
+        }
+
+        function tryDropCoin() {
+            if (coinsLeft <= 0) return;
+            const now = performance.now();
+            if (now - lastDropTime < 150) return; // Prevent spamming physically impossible overlaps
+
+            spawnCoin(ghostCoin.position.x, 6, -5.5);
+            coinsLeft--;
+            lastDropTime = now;
+            updateUI();
+        }
+
+        function setupEvents() {
+            // Desktop
+            window.addEventListener('mousemove', (e) => handlePointer(e.clientX, e.clientY));
+            window.addEventListener('mousedown', tryDropCoin);
+
+            // Mobile
+            window.addEventListener('touchstart', (e) => {
+                handlePointer(e.touches[0].clientX, e.touches[0].clientY);
+                tryDropCoin();
+            });
+            window.addEventListener('touchmove', (e) => handlePointer(e.touches[0].clientX, e.touches[0].clientY));
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            // Auto-regenerate coins if playing for free
+            setInterval(() => {
+                if(coinsLeft < 15) {
+                    coinsLeft++;
+                    updateUI();
+                }
+            }, 3000);
+        }
+
+        function updateUI() {
+            document.getElementById('score-val').innerText = score;
+            document.getElementById('coins-val').innerText = coinsLeft;
+        }
+
+        let lastTime = performance.now();
+        const timeStep = 1 / 120; // High precision for stacking stability
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            let dt = (time - lastTime) / 1000;
+            lastTime = time;
+
+            // Cap dt to prevent massive simulation jumps if tab is inactive
+            if (dt > 0.1) dt = 0.1;
+
+            // Update Kinematic Pusher
+            const simTime = time / 1000;
+            const pusherBaseZ = -9.5;
+            const amplitude = 2.5;
+            const frequency = 1.5;
+            
+            // Set both position and velocity for accurate kinematic pushing
+            pusherBody.position.z = pusherBaseZ + amplitude * Math.sin(simTime * frequency);
+            pusherBody.velocity.z = amplitude * frequency * Math.cos(simTime * frequency);
+            pusherMesh.position.copy(pusherBody.position);
+
+            // Step Physics
+            world.step(timeStep, dt, 10);
+
+            // Sync visual meshes and handle scoring/cleanup
+            for (let i = coins.length - 1; i >= 0; i--) {
+                const c = coins[i];
+                c.mesh.position.copy(c.body.position);
+                c.mesh.quaternion.copy(c.body.quaternion);
+
+                // Check if coin fell
+                if (c.body.position.y < -3) {
+                    // Check if it fell off the front win edge (Z > 14) and NOT into side gutters (X within table width)
+                    if (c.body.position.z > 14 && Math.abs(c.body.position.x) <= 9) {
+                        score += 100;
+                        coinsLeft += 2; // Reward for winning
+                    }
+                    
+                    // Cleanup
+                    if (world.removeBody) world.removeBody(c.body);
+                    else world.remove(c.body);
+                    scene.remove(c.mesh);
+                    coins.splice(i, 1);
+                    updateUI();
+                }
+            }
+
+            // Animate ghost coin slightly
+            ghostCoin.rotation.y += 0.05;
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
