@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lumen Slumber - Sensory Sleep Aid</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050505;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 0;
+            filter: blur(60px); /* Increased blur for smoother flow */
+            opacity: 0.8;
+            background: #050505;
+        }
+        .ui-container {
+            position: relative;
+            z-index: 10;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            padding: 2rem;
+            background: radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.6) 100%);
+            pointer-events: none;
+            transition: opacity 2s ease;
+        }
+        .ui-container.dimmed {
+            opacity: 0.05;
+        }
+        .controls-card {
+            background: rgba(20, 20, 20, 0.85);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 2rem;
+            padding: 1.5rem 2rem;
+            pointer-events: auto;
+            width: 100%;
+            max-width: 400px;
+        }
+        .btn-toggle {
+            transition: all 0.3s ease;
+        }
+        .btn-toggle.active {
+            background-color: #4f46e5;
+            color: white;
+            box-shadow: 0 0 15px rgba(79, 70, 229, 0.4);
+        }
+        input[type=range] {
+            accent-color: #4f46e5;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="visualizer"></canvas>
+
+    <div class="ui-container" id="ui">
+        <header class="text-center mt-8">
+            <h1 class="text-3xl font-light tracking-widest uppercase opacity-80">Lumen Slumber</h1>
+            <p class="text-sm font-light opacity-50 mt-2">Tap anywhere to focus on the flow</p>
+        </header>
+
+        <div class="controls-card space-y-6 shadow-2xl">
+            <!-- Play/Stop -->
+            <button id="mainToggle" class="w-full py-4 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 font-medium tracking-wide transition-all">
+                START EXPERIENCE
+            </button>
+
+            <!-- Noise Controls -->
+            <div class="space-y-3">
+                <label class="text-xs uppercase tracking-tighter opacity-60">Sound Landscape</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <button id="pinkBtn" class="btn-toggle py-2 rounded-lg bg-white/5 border border-white/5 text-sm">Pink Noise</button>
+                    <button id="blueBtn" class="btn-toggle py-2 rounded-lg bg-white/5 border border-white/5 text-sm">Blue Noise</button>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="text-xs opacity-40">Vol</span>
+                    <input type="range" id="volume" class="w-full" min="0" max="1" step="0.01" value="0.3">
+                </div>
+            </div>
+
+            <!-- Visual Controls -->
+            <div class="space-y-3">
+                <label class="text-xs uppercase tracking-tighter opacity-60">Pulse Speed</label>
+                <input type="range" id="speed" class="w-full" min="0.1" max="2" step="0.1" value="0.6">
+                <div class="flex justify-between text-[10px] opacity-30">
+                    <span>DEEP BREATH</span>
+                    <span>DREAMING</span>
+                </div>
+            </div>
+
+            <!-- Timer -->
+            <div class="space-y-3">
+                <label class="text-xs uppercase tracking-tighter opacity-60">Sleep Timer (Mins)</label>
+                <div class="flex items-center gap-3">
+                    <input type="number" id="timerInput" class="w-20 bg-white/5 border border-white/10 rounded-lg p-2 text-center" value="20">
+                    <span id="timeLeft" class="text-xs opacity-40 italic">Not set</span>
+                </div>
+            </div>
+        </div>
+
+        <footer class="mb-8 opacity-30 text-[10px] uppercase tracking-widest">
+            Visual Entrainment System v1.1
+        </footer>
+    </div>
+
+    <script>
+        // --- AUDIO ENGINE ---
+        let audioCtx;
+        let noiseNode;
+        let gainNode;
+        let isPlaying = false;
+        let noiseType = 'pink';
+
+        function createPinkNoise() {
+            const bufferSize = 4096 * 4;
+            let b0, b1, b2, b3, b4, b5, b6;
+            b0 = b1 = b2 = b3 = b4 = b5 = b6 = 0.0;
+            const node = audioCtx.createScriptProcessor(bufferSize, 1, 1);
+            node.onaudioprocess = (e) => {
+                const output = e.outputBuffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    const white = Math.random() * 2 - 1;
+                    b0 = 0.99886 * b0 + white * 0.0555179;
+                    b1 = 0.99332 * b1 + white * 0.0750759;
+                    b2 = 0.96900 * b2 + white * 0.1538520;
+                    b3 = 0.86650 * b3 + white * 0.3104856;
+                    b4 = 0.55000 * b4 + white * 0.5329522;
+                    b5 = -0.7616 * b5 - white * 0.0168980;
+                    output[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+                    output[i] *= 0.11;
+                    b6 = white * 0.115926;
+                }
+            };
+            return node;
+        }
+
+        function createBlueNoise() {
+            const bufferSize = 4096 * 4;
+            let lastOut = 0.0;
+            const node = audioCtx.createScriptProcessor(bufferSize, 1, 1);
+            node.onaudioprocess = (e) => {
+                const output = e.outputBuffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    const white = Math.random() * 2 - 1;
+                    output[i] = white - lastOut;
+                    lastOut = white;
+                    output[i] *= 0.5;
+                }
+            };
+            return node;
+        }
+
+        function startAudio() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (noiseNode) noiseNode.disconnect();
+            
+            noiseNode = noiseType === 'pink' ? createPinkNoise() : createBlueNoise();
+            gainNode = audioCtx.createGain();
+            gainNode.gain.value = document.getElementById('volume').value;
+            
+            noiseNode.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+        }
+
+        function stopAudio() {
+            if (noiseNode) {
+                noiseNode.disconnect();
+                noiseNode = null;
+            }
+        }
+
+        // --- VISUAL ENGINE ---
+        const canvas = document.getElementById('visualizer');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let time = 0;
+
+        function resize() {
+            // High res for better gradient quality, the blur handles the softness
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        function draw() {
+            const speed = parseFloat(document.getElementById('speed').value) * 0.015;
+            time += speed;
+
+            // Clear with slightly transparent black to create a "tail" effect if blur is removed,
+            // but here it helps with smoothing the animation.
+            ctx.fillStyle = '#050505';
+            ctx.fillRect(0, 0, width, height);
+
+            // Create a main pulsing flow
+            const pulse = (Math.sin(time * 0.5) + 1) / 2;
+            
+            // Draw multiple overlapping radial gradients (orbs) that move
+            const drawOrb = (x, y, radius, color1, color2) => {
+                const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+                grad.addColorStop(0, color1);
+                grad.addColorStop(1, color2);
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fill();
+            };
+
+            // Main central pulse (deep indigo to purple)
+            const mainR = 40 + pulse * 60;
+            const mainB = 100 + pulse * 100;
+            drawOrb(
+                width / 2 + Math.sin(time * 0.4) * (width * 0.1),
+                height / 2 + Math.cos(time * 0.3) * (height * 0.1),
+                width * 0.8,
+                `rgba(${mainR}, 30, ${mainB}, 0.6)`,
+                'rgba(5, 5, 5, 0)'
+            );
+
+            // Accent 1: Soft Violet/Blue
+            drawOrb(
+                width * 0.3 + Math.cos(time * 0.5) * (width * 0.2),
+                height * 0.4 + Math.sin(time * 0.6) * (height * 0.2),
+                width * 0.5,
+                'rgba(80, 50, 180, 0.4)',
+                'rgba(0, 0, 0, 0)'
+            );
+
+            // Accent 2: Dim Amber (Warmth)
+            const amberPulse = (Math.cos(time * 0.4) + 1) / 2;
+            drawOrb(
+                width * 0.7 + Math.sin(time * 0.5) * (width * 0.2),
+                height * 0.6 + Math.cos(time * 0.4) * (height * 0.2),
+                width * 0.4,
+                `rgba(150, 80, 30, ${0.1 + amberPulse * 0.15})`,
+                'rgba(0, 0, 0, 0)'
+            );
+
+            requestAnimationFrame(draw);
+        }
+
+        // --- UI & STATE ---
+        const mainToggle = document.getElementById('mainToggle');
+        const pinkBtn = document.getElementById('pinkBtn');
+        const blueBtn = document.getElementById('blueBtn');
+        const volumeInput = document.getElementById('volume');
+        const ui = document.getElementById('ui');
+        const timerInput = document.getElementById('timerInput');
+        const timeLeftSpan = document.getElementById('timeLeft');
+
+        let timerInterval;
+
+        function updateNoiseButtons() {
+            pinkBtn.classList.toggle('active', noiseType === 'pink');
+            blueBtn.classList.toggle('active', noiseType === 'blue');
+        }
+
+        mainToggle.addEventListener('click', () => {
+            isPlaying = !isPlaying;
+            if (isPlaying) {
+                startAudio();
+                mainToggle.textContent = 'STOP EXPERIENCE';
+                mainToggle.classList.add('bg-indigo-900/40');
+                startTimer();
+            } else {
+                stopAudio();
+                mainToggle.textContent = 'START EXPERIENCE';
+                mainToggle.classList.remove('bg-indigo-900/40');
+                clearInterval(timerInterval);
+                timeLeftSpan.textContent = "Stopped";
+            }
+        });
+
+        pinkBtn.addEventListener('click', () => {
+            noiseType = 'pink';
+            updateNoiseButtons();
+            if (isPlaying) startAudio();
+        });
+
+        blueBtn.addEventListener('click', () => {
+            noiseType = 'blue';
+            updateNoiseButtons();
+            if (isPlaying) startAudio();
+        });
+
+        volumeInput.addEventListener('input', (e) => {
+            if (gainNode) gainNode.gain.value = e.target.value;
+        });
+
+        function startTimer() {
+            const mins = parseInt(timerInput.value);
+            if (isNaN(mins) || mins <= 0) return;
+
+            let secondsLeft = mins * 60;
+            
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                secondsLeft--;
+                const m = Math.floor(secondsLeft / 60);
+                const s = secondsLeft % 60;
+                timeLeftSpan.textContent = `${m}:${s < 10 ? '0' : ''}${s} remaining`;
+
+                if (secondsLeft <= 0) {
+                    isPlaying = false;
+                    stopAudio();
+                    mainToggle.textContent = 'START EXPERIENCE';
+                    timeLeftSpan.textContent = "Sleep time reached";
+                    clearInterval(timerInterval);
+                }
+            }, 1000);
+        }
+
+        document.body.addEventListener('click', (e) => {
+            if (e.target.closest('.controls-card') || e.target.closest('header')) return;
+            ui.classList.toggle('dimmed');
+        });
+
+        // Init
+        updateNoiseButtons();
+        draw();
+
+    </script>
+</body>
+</html>
