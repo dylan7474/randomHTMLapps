@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chalet Cuckoo Clock</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=Cinzel:wght@700&display=swap');
+
+        /* Premium Variables */
+        :root {
+            --mahogany-light: #5c2c16;
+            --mahogany-base: #3b190b;
+            --mahogany-dark: #220e06;
+            --walnut: #4a3018;
+            --brass-light: #f9e596;
+            --brass-base: #c5a059;
+            --brass-dark: #8b6932;
+            --parchment: #f4ecd8;
+            --dial-ink: #1a1510;
+        }
+
+        body {
+            background: radial-gradient(circle at 50% 30%, #3a3f47 0%, #111418 100%);
+            margin: 0;
+            overflow-x: hidden;
+            color: #e2e8f0;
+            font-family: 'Playfair Display', serif;
+        }
+
+        /* Elaborate Wood Textures */
+        .wood-body {
+            background: linear-gradient(135deg, var(--mahogany-light) 0%, var(--mahogany-base) 40%, var(--mahogany-dark) 100%);
+            box-shadow: 
+                inset 0 0 30px rgba(0,0,0,0.8),
+                inset 2px 2px 5px rgba(255,255,255,0.1),
+                15px 25px 40px rgba(0,0,0,0.7);
+            border: 1px solid #1a0a04;
+        }
+        
+        .wood-carving {
+            background: linear-gradient(to bottom, var(--walnut), #2a180a);
+            box-shadow: inset 1px 1px 2px rgba(255,255,255,0.1), 3px 5px 10px rgba(0,0,0,0.6);
+            border: 1px solid #110702;
+        }
+
+        /* Detailed Roof */
+        .roof-panel {
+            background: repeating-linear-gradient(
+                90deg,
+                var(--mahogany-dark),
+                var(--mahogany-dark) 10px,
+                var(--mahogany-base) 10px,
+                var(--mahogany-base) 20px
+            );
+            box-shadow: inset 0 -10px 20px rgba(0,0,0,0.8), 5px 10px 15px rgba(0,0,0,0.5);
+            border-bottom: 6px solid #150803;
+        }
+        .roof-left {
+            transform-origin: bottom right;
+            transform: rotate(-38deg) translateX(-5px) translateY(8px);
+        }
+        .roof-right {
+            transform-origin: bottom left;
+            transform: rotate(38deg) translateX(5px) translateY(8px);
+        }
+
+        /* Precise Pendulum Physics */
+        .pendulum-container {
+            transform-origin: top center;
+            z-index: 5;
+            /* Animation removed: We will now drive this precisely with JS for audio sync */
+        }
+
+        .pendulum-rod {
+            background: linear-gradient(to right, var(--brass-dark), var(--brass-light), var(--brass-dark));
+            box-shadow: 2px 0 5px rgba(0,0,0,0.5);
+        }
+        .pendulum-bob {
+            background: radial-gradient(circle at 35% 35%, #fff2b2 0%, var(--brass-base) 40%, var(--brass-dark) 80%, #4a3511 100%);
+            border: 2px solid var(--brass-light);
+            box-shadow: 0 10px 15px rgba(0,0,0,0.6), inset 0 -4px 8px rgba(0,0,0,0.5);
+        }
+        .pendulum-bob::after {
+            content: '';
+            position: absolute;
+            top: 15%; left: 15%; right: 15%; bottom: 15%;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+        }
+
+        /* Realistic Weights */
+        .weight-chain {
+            width: 4px;
+            background: repeating-linear-gradient(
+                to bottom,
+                var(--brass-dark),
+                var(--brass-dark) 4px,
+                var(--brass-light) 4px,
+                var(--brass-light) 8px
+            );
+            box-shadow: 2px 0 3px rgba(0,0,0,0.5);
+        }
+        .pinecone {
+            background: radial-gradient(ellipse at 30% 30%, #5e3b22 0%, #241308 100%);
+            border-radius: 50% 50% 45% 45% / 70% 70% 30% 30%;
+            box-shadow: inset -3px -3px 10px rgba(0,0,0,0.8), 0 8px 12px rgba(0,0,0,0.6);
+            overflow: hidden;
+        }
+        /* Pinecone scales texture */
+        .pinecone::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: 
+                radial-gradient(ellipse at center, rgba(255,255,255,0.1) 0%, transparent 60%),
+                radial-gradient(ellipse at center, rgba(0,0,0,0.4) 0%, transparent 60%);
+            background-size: 10px 8px, 10px 8px;
+            background-position: 0 0, 5px 4px;
+        }
+
+        /* Vintage Clock Face */
+        .clock-bezel {
+            background: linear-gradient(135deg, var(--brass-light), var(--brass-dark), var(--brass-base));
+            box-shadow: 0 10px 20px rgba(0,0,0,0.6), inset 0 2px 5px rgba(255,255,255,0.5);
+        }
+        .clock-face {
+            background: radial-gradient(circle, var(--parchment) 0%, #d8cbb0 100%);
+            box-shadow: inset 0 0 25px rgba(0,0,0,0.4);
+        }
+        .clock-inner-ring {
+            border: 1px solid rgba(0,0,0,0.1);
+            background: repeating-conic-gradient(from 0deg, transparent 0deg 14deg, rgba(0,0,0,0.03) 14deg 15deg);
+        }
+        .roman-numeral {
+            position: absolute;
+            font-family: 'Cinzel', serif;
+            font-weight: 700;
+            color: var(--dial-ink);
+            transform-origin: center;
+            text-shadow: 1px 1px 0 rgba(255,255,255,0.5);
+        }
+
+        /* Ornate Hands */
+        .hand {
+            transform-origin: bottom center;
+            box-shadow: 3px 5px 8px rgba(0,0,0,0.4);
+            border-radius: 4px 4px 0 0;
+        }
+        .hand-hour {
+            background: var(--dial-ink);
+            z-index: 10;
+        }
+        .hand-hour::before { /* Decorative spade */
+            content: '';
+            position: absolute;
+            top: -10px; left: -4px;
+            width: 14px; height: 14px;
+            background: var(--dial-ink);
+            transform: rotate(45deg);
+            border-radius: 2px;
+        }
+        .hand-minute {
+            background: var(--dial-ink);
+            z-index: 11;
+        }
+        .hand-minute::before {
+            content: '';
+            position: absolute;
+            top: -15px; left: -2px;
+            width: 8px; height: 20px;
+            background: var(--dial-ink);
+            clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+        }
+        .hand-second {
+            background: #8b0000;
+            z-index: 12;
+            box-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .center-pin {
+            background: radial-gradient(circle, var(--brass-light) 0%, var(--brass-dark) 100%);
+            z-index: 13;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.6), inset 0 1px 2px rgba(255,255,255,0.8);
+            border: 1px solid #4a3511;
+        }
+
+        /* Cuckoo Stage & Bird */
+        .cuckoo-door-container {
+            perspective: 400px;
+            box-shadow: inset 0 20px 20px -10px rgba(0,0,0,0.9);
+            border: 3px solid var(--mahogany-dark);
+            background: #0a0402;
+        }
+        .door {
+            transform-origin: left center;
+            transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            background: linear-gradient(to right, var(--mahogany-base), var(--mahogany-dark));
+            border: 1px solid #1a0a04;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.5);
+        }
+        .door.right {
+            transform-origin: right center;
+        }
+        
+        .cuckoo-active .door.left { transform: rotateY(-120deg); }
+        .cuckoo-active .door.right { transform: rotateY(120deg); }
+        
+        .cuckoo-bird {
+            transform: translateZ(-30px) translateY(15px) scale(0.4);
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            filter: drop-shadow(0 5px 5px rgba(0,0,0,0.8));
+        }
+        .cuckoo-active .cuckoo-bird {
+            transform: translateZ(20px) translateY(5px) scale(1.1);
+            opacity: 1;
+        }
+
+        .bird-body {
+            background: radial-gradient(circle at top left, #a0522d, #5c2c16);
+            border-radius: 50% 50% 40% 40%;
+        }
+        .bird-wing {
+            background: linear-gradient(to bottom, #cd853f, #8b4513);
+            border-radius: 50% 0 50% 50%;
+            box-shadow: -1px 2px 3px rgba(0,0,0,0.3);
+        }
+        .bird-beak {
+            width: 0; height: 0; 
+            border-top: 4px solid transparent;
+            border-bottom: 4px solid transparent;
+            border-left: 10px solid #daa520;
+            transition: transform 0.1s;
+        }
+
+        @keyframes chirp {
+            0% { transform: translateZ(20px) translateY(5px) rotateX(0deg); }
+            30% { transform: translateZ(25px) translateY(3px) rotateX(-20deg); }
+            100% { transform: translateZ(20px) translateY(5px) rotateX(0deg); }
+        }
+        .is-chirping { animation: chirp 0.3s ease-in-out; }
+        .is-chirping .bird-beak { transform: rotate(-15deg); }
+
+        /* UI Controls */
+        .glass-panel {
+            background: rgba(25, 25, 30, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center pt-8 pb-20 relative">
+
+    <!-- Decorative Wall Shadow -->
+    <div class="absolute top-[200px] left-1/2 -translate-x-1/2 w-[400px] h-[700px] bg-black/40 blur-[40px] rounded-full z-0 pointer-events-none"></div>
+
+    <div class="text-center mb-10 z-20 relative">
+        <h1 class="text-4xl md:text-5xl font-bold text-amber-50 tracking-wide drop-shadow-md mb-2 font-['Cinzel']">Chalet Automata</h1>
+        <p class="text-amber-200/60 font-light italic">Horology & Web Audio Synthesis</p>
+    </div>
+
+    <!-- Clock Assembly Container -->
+    <div class="relative w-[340px] h-[720px] flex justify-center z-10">
+        
+        <!-- Weights (Hanging behind) -->
+        <div class="absolute top-[440px] left-1/2 -translate-x-1/2 w-40 h-64 flex justify-between z-0">
+            <!-- Left Weight -->
+            <div class="flex flex-col items-center transform translate-y-16 transition-transform duration-[2000ms] ease-linear" id="weight-left">
+                <div class="weight-chain h-40"></div>
+                <div class="pinecone w-10 h-16 relative flex items-center justify-center">
+                    <div class="w-3 h-3 rounded-full bg-[var(--brass-dark)] absolute -top-1.5 shadow-sm"></div>
+                    <div class="w-1.5 h-3 bg-[var(--brass-base)] absolute -top-3"></div>
+                </div>
+            </div>
+            <!-- Right Weight -->
+            <div class="flex flex-col items-center transform -translate-y-8 transition-transform duration-[2000ms] ease-linear" id="weight-right">
+                <div class="weight-chain h-56"></div>
+                <div class="pinecone w-10 h-16 relative flex items-center justify-center">
+                    <div class="w-3 h-3 rounded-full bg-[var(--brass-dark)] absolute -top-1.5 shadow-sm"></div>
+                    <div class="w-1.5 h-3 bg-[var(--brass-base)] absolute -top-3"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pendulum -->
+        <div class="absolute top-[420px] left-1/2 -translate-x-1/2 h-72 w-24 flex flex-col items-center z-0">
+            <div class="pendulum-container w-full h-full flex flex-col items-center">
+                <div class="pendulum-rod w-2.5 h-56"></div>
+                <div class="pendulum-bob w-20 h-20 rounded-full -mt-4 flex items-center justify-center relative">
+                    <!-- Inner detailing -->
+                    <div class="w-12 h-12 rounded-full border border-yellow-700/30"></div>
+                    <div class="absolute w-2 h-2 rounded-full bg-white/40 shadow-[0_0_10px_rgba(255,255,255,0.8)] -top-1"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Clock Body -->
+        <div class="absolute top-20 w-[280px] h-[440px] wood-body rounded-b-2xl flex flex-col items-center z-10">
+            
+            <!-- Roof Assembly -->
+            <div class="absolute -top-[65px] left-[-45px] w-[210px] h-16 roof-panel roof-left z-20 flex justify-end items-end p-2">
+                <div class="w-2 h-full bg-black/20"></div>
+            </div>
+            <div class="absolute -top-[65px] right-[-45px] w-[210px] h-16 roof-panel roof-right z-20 flex justify-start items-end p-2">
+                <div class="w-2 h-full bg-black/20"></div>
+            </div>
+            
+            <!-- Center Peak Finial -->
+            <div class="absolute -top-24 left-1/2 -translate-x-1/2 w-8 h-12 wood-carving rounded-t-full z-30 flex flex-col items-center justify-start pt-1">
+                <div class="w-4 h-4 bg-amber-900 rounded-full shadow-inner border border-amber-950"></div>
+            </div>
+            <!-- Side Pillars -->
+            <div class="absolute top-10 bottom-10 -left-3 w-6 wood-carving rounded-sm shadow-xl z-20 border-x border-[#1a0a04]"></div>
+            <div class="absolute top-10 bottom-10 -right-3 w-6 wood-carving rounded-sm shadow-xl z-20 border-x border-[#1a0a04]"></div>
+
+            <!-- Balcony/Trim -->
+            <div class="absolute bottom-0 w-[115%] h-10 wood-carving rounded-b-xl shadow-2xl -left-[7.5%] flex flex-col justify-end pb-2 px-4 z-20">
+                <div class="w-full h-2 bg-black/30 rounded-full mb-1"></div>
+                <div class="w-full flex justify-between px-2">
+                    <div class="w-3 h-4 bg-amber-950 rounded-t-sm"></div>
+                    <div class="w-3 h-4 bg-amber-950 rounded-t-sm"></div>
+                    <div class="w-3 h-4 bg-amber-950 rounded-t-sm"></div>
+                    <div class="w-3 h-4 bg-amber-950 rounded-t-sm"></div>
+                    <div class="w-3 h-4 bg-amber-950 rounded-t-sm"></div>
+                </div>
+            </div>
+            
+            <!-- Cuckoo Door Area -->
+            <div class="mt-10 w-20 h-24 rounded-t-full relative cuckoo-door-container flex justify-center items-end" id="cuckoo-box">
+                <!-- The Bird -->
+                <div class="cuckoo-bird absolute bottom-2 w-12 h-12 flex flex-col items-center z-10" id="the-bird">
+                    <!-- Head -->
+                    <div class="w-7 h-6 bg-amber-700 rounded-t-full relative shadow-md">
+                        <div class="absolute right-[-8px] top-2 bird-beak"></div>
+                        <div class="absolute right-1.5 top-1.5 w-1.5 h-1.5 bg-black rounded-full shadow-[0_0_2px_rgba(255,255,255,0.5)]"></div>
+                    </div>
+                    <!-- Body -->
+                    <div class="w-10 h-7 bird-body shadow-lg relative flex justify-center items-center">
+                        <div class="absolute -left-1 top-1 w-6 h-4 bird-wing rotate-12"></div>
+                        <div class="w-4 h-2 bg-amber-900/50 rounded-full mt-2"></div>
+                    </div>
+                </div>
+
+                <!-- Doors -->
+                <div class="door left absolute left-0 w-1/2 h-full rounded-tl-full z-20 flex items-center justify-center">
+                    <div class="w-1.5 h-1.5 bg-[var(--brass-dark)] rounded-full ml-1.5 shadow-sm"></div>
+                </div>
+                <div class="door right absolute right-0 w-1/2 h-full rounded-tr-full z-20 flex items-center justify-center">
+                    <div class="w-1.5 h-1.5 bg-[var(--brass-dark)] rounded-full mr-1.5 shadow-sm"></div>
+                </div>
+            </div>
+
+            <!-- Clock Face -->
+            <div class="mt-8 w-48 h-48 clock-bezel rounded-full relative flex items-center justify-center p-2 z-30">
+                <div class="w-full h-full clock-face rounded-full relative flex items-center justify-center">
+                    
+                    <!-- Inner Rings -->
+                    <div class="w-[85%] h-[85%] clock-inner-ring rounded-full absolute"></div>
+                    <div class="w-[30%] h-[30%] border border-amber-900/10 rounded-full absolute"></div>
+
+                    <!-- Numerals (Injected via JS) -->
+                    <div id="clock-numerals" class="absolute inset-0"></div>
+                    
+                    <!-- Hands -->
+                    <div class="absolute inset-0 flex items-center justify-center">
+                        <div id="hour-hand" class="hand hand-hour absolute w-2 h-12 -mt-12"></div>
+                        <div id="minute-hand" class="hand hand-minute absolute w-1.5 h-16 -mt-16"></div>
+                        <div id="second-hand" class="hand hand-second absolute w-[2px] h-20 -mt-20">
+                            <!-- Second hand counterbalance -->
+                            <div class="absolute -bottom-5 left-1/2 -translate-x-1/2 w-1.5 h-5 bg-red-800 rounded-full"></div>
+                        </div>
+                        <div class="center-pin w-4 h-4 rounded-full"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Elegant Control Panel -->
+    <div class="fixed bottom-6 left-1/2 -translate-x-1/2 glass-panel rounded-full py-3 px-6 shadow-2xl flex items-center gap-6 z-50">
+        <button id="mute-btn" onclick="toggleMute()" class="text-amber-100 hover:text-white transition-colors flex items-center gap-2 text-sm font-sans tracking-wide outline-none">
+            <i class="fa-solid fa-volume-high w-5" id="mute-icon"></i>
+            <span id="mute-text">Sound On</span>
+        </button>
+        <div class="w-px h-6 bg-white/20"></div>
+        <button onclick="triggerCuckooTest()" class="text-amber-300 hover:text-amber-100 transition-colors flex items-center gap-2 text-sm font-sans tracking-wide outline-none font-semibold">
+            <i class="fa-solid fa-clock-rotate-left"></i>
+            Test Chime
+        </button>
+    </div>
+
+    <script>
+        // --- Clock DOM Elements ---
+        const hourHand = document.getElementById('hour-hand');
+        const minuteHand = document.getElementById('minute-hand');
+        const secondHand = document.getElementById('second-hand');
+        const cuckooBox = document.getElementById('cuckoo-box');
+        const theBird = document.getElementById('the-bird');
+        const pendulumContainer = document.querySelector('.pendulum-container');
+        
+        let audioCtx;
+        let isCuckooing = false;
+        let lastChimeTime = ''; // Format: "HH:MM"
+        let isMuted = false;
+        let lastTickSecond = -1;
+
+        // --- Init UI ---
+        function toggleMute() {
+            isMuted = !isMuted;
+            const icon = document.getElementById('mute-icon');
+            const text = document.getElementById('mute-text');
+            if (isMuted) {
+                icon.className = 'fa-solid fa-volume-xmark w-5 text-red-400';
+                text.innerText = 'Muted';
+            } else {
+                icon.className = 'fa-solid fa-volume-high w-5';
+                text.innerText = 'Sound On';
+                initAudio(); // Initialize audio context on un-mute if needed
+            }
+        }
+
+        // Generate Elegant Roman Numerals
+        function createNumerals() {
+            const container = document.getElementById('clock-numerals');
+            const numerals = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+            // 48 tailwind width = 192px. Radius inside padding ~ 78px
+            const radius = 76; 
+            const centerX = 88; // Center inside the 176px inner face
+            const centerY = 88;
+
+            numerals.forEach((num, index) => {
+                const angle = ((index + 1) * 30 - 90) * (Math.PI / 180);
+                const x = centerX + radius * Math.cos(angle);
+                const y = centerY + radius * Math.sin(angle);
+                
+                const el = document.createElement('div');
+                el.className = 'roman-numeral text-base md:text-lg';
+                el.innerText = num;
+                
+                // Adjust for centering
+                el.style.left = `calc(${x}px - 0.5em)`;
+                el.style.top = `calc(${y}px - 0.6em)`;
+                
+                // Keep upright for elegance, or radial. Vintage clocks often keep them radial but flipped at bottom.
+                // We'll use radial for authenticity
+                let rotAngle = (index + 1) * 30;
+                // Readability flip for bottom half
+                if (rotAngle > 90 && rotAngle < 270) {
+                    rotAngle -= 180;
+                }
+                el.style.transform = `rotate(${rotAngle}deg)`;
+                
+                container.appendChild(el);
+            });
+        }
+
+        // --- Premium Web Audio Synthesis ---
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        // Wake up audio on first user interaction so ticks can start
+        document.addEventListener('click', initAudio, { once: true });
+
+        // Synthesize Mechanical Tick/Tock
+        function playTickSound(isTock) {
+            if (!audioCtx || isMuted || audioCtx.state === 'suspended') return;
+            
+            const t = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+
+            osc.type = 'square';
+            
+            // Distinct characteristics for Tick vs Tock
+            // Tick is sharper/higher, Tock is deeper/hollower
+            const baseFreq = isTock ? 75 : 120;       // The underlying wooden "thud"
+            const clickFreq = isTock ? 1200 : 3500;   // The metallic "click" of the gear
+            const decayTime = isTock ? 0.07 : 0.04;   // Tock rings out just a tiny bit longer
+            const qValue = isTock ? 4 : 1;            // Tock has more hollow body resonance
+            const peakVolume = isTock ? 0.25 : 0.3;   // Tick is slightly louder on the attack
+            
+            osc.frequency.setValueAtTime(baseFreq, t);
+            
+            // Rapid filter sweep: Starts bright (metallic click) and snaps shut (wooden body)
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(clickFreq, t); 
+            filter.frequency.exponentialRampToValueAtTime(baseFreq + 50, t + 0.015); 
+            filter.Q.value = qValue; 
+
+            // Percussive volume envelope
+            gain.gain.setValueAtTime(0, t);
+            gain.gain.linearRampToValueAtTime(peakVolume, t + 0.002); // Instant attack
+            gain.gain.exponentialRampToValueAtTime(0.001, t + decayTime); // Fast decay
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start(t);
+            osc.stop(t + 0.1);
+        }
+
+        function createPipeSound(freq, startTime, duration) {
+            if (isMuted || !audioCtx) return;
+
+            // Combine Sine (fundamental) and Triangle (harmonics for wooden pipe feel)
+            const oscSine = audioCtx.createOscillator();
+            const oscTri = audioCtx.createOscillator();
+            
+            const mainGain = audioCtx.createGain();
+            const filter = audioCtx.createBiquadFilter();
+
+            oscSine.type = 'sine';
+            oscTri.type = 'triangle';
+            oscSine.frequency.setValueAtTime(freq, startTime);
+            oscTri.frequency.setValueAtTime(freq, startTime);
+
+            // Filter to make triangle less harsh, more breathy
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(freq * 2, startTime);
+            filter.Q.value = 1;
+
+            // Envelope to mimic bellows
+            mainGain.gain.setValueAtTime(0, startTime);
+            mainGain.gain.linearRampToValueAtTime(0.6, startTime + 0.05); // quick attack
+            mainGain.gain.exponentialRampToValueAtTime(0.01, startTime + duration); // smooth decay
+
+            oscSine.connect(mainGain);
+            
+            // Lower triangle volume relative to sine
+            const triGain = audioCtx.createGain();
+            triGain.gain.value = 0.15;
+            oscTri.connect(triGain);
+            triGain.connect(mainGain);
+
+            mainGain.connect(filter);
+            filter.connect(audioCtx.destination);
+
+            oscSine.start(startTime);
+            oscTri.start(startTime);
+            oscSine.stop(startTime + duration);
+            oscTri.stop(startTime + duration);
+        }
+
+        function playCuckooSound() {
+            initAudio();
+            if (!audioCtx || isMuted) {
+                // If muted, just do visual animation
+                triggerBirdVisuals();
+                return;
+            }
+
+            const t = audioCtx.currentTime;
+            
+            // Higher note "Cuck"
+            createPipeSound(659.25, t, 0.2); // E5
+            
+            // Lower note "Oo"
+            createPipeSound(523.25, t + 0.25, 0.5); // C5
+
+            triggerBirdVisuals();
+        }
+
+        function triggerBirdVisuals() {
+            theBird.classList.add('is-chirping');
+            setTimeout(() => {
+                theBird.classList.remove('is-chirping');
+                setTimeout(() => {
+                    theBird.classList.add('is-chirping');
+                    setTimeout(() => theBird.classList.remove('is-chirping'), 250);
+                }, 50);
+            }, 200);
+        }
+
+        // --- Animation Sequences ---
+        async function runCuckooSequence(times) {
+            if (isCuckooing) return;
+            isCuckooing = true;
+            if (!isMuted) initAudio(); 
+
+            // Majestic door opening
+            cuckooBox.classList.add('cuckoo-active');
+            
+            // Wait for pop-out
+            await new Promise(r => setTimeout(r, 700));
+
+            for (let i = 0; i < times; i++) {
+                playCuckooSound();
+                // Pacing between calls
+                await new Promise(r => setTimeout(r, 1200));
+            }
+
+            // Small pause before retreating
+            await new Promise(r => setTimeout(r, 300));
+
+            // Close doors
+            cuckooBox.classList.remove('cuckoo-active');
+            
+            // Reset state after animation finishes
+            setTimeout(() => { isCuckooing = false; }, 600);
+        }
+
+        window.triggerCuckooTest = function() {
+            let currentHour = new Date().getHours() % 12;
+            if (currentHour === 0) currentHour = 12;
+            // Cap at 3 for test so it's not overly long
+            runCuckooSequence(Math.min(currentHour, 3));
+        }
+
+        // --- Core Timekeeping ---
+        function updateClock() {
+            const now = new Date();
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+            const seconds = now.getSeconds();
+            const ms = now.getMilliseconds();
+            
+            const timeInSeconds = seconds + ms / 1000;
+
+            // Mechanical Stepping: Hand positions are locked to whole integer seconds 
+            // to perfectly match the escapement gear's tick/tock release.
+            const secondDeg = (seconds / 60) * 360;
+            const minuteDeg = ((minutes + seconds / 60) / 60) * 360;
+            const hourDeg = (((hours % 12) + minutes / 60) / 12) * 360;
+
+            secondHand.style.transform = `rotate(${secondDeg}deg)`;
+            minuteHand.style.transform = `rotate(${minuteDeg}deg)`;
+            hourHand.style.transform = `rotate(${hourDeg}deg)`;
+
+            // Pendulum Physics (Driven by precise time)
+            // Cosine wave ensures the apex (8 degrees) hits precisely on the integer second
+            const pendulumAngle = 8 * Math.cos(timeInSeconds * Math.PI);
+            pendulumContainer.style.transform = `rotate(${pendulumAngle}deg)`;
+
+            // Trigger Tick/Tock exactly on the second rollover
+            if (seconds !== lastTickSecond) {
+                lastTickSecond = seconds;
+                // Alternate between tick and tock based on even/odd seconds
+                playTickSound(seconds % 2 === 0);
+            }
+
+            // Weight descent simulation (resets every 12 hours)
+            const cycleProgress = ((hours % 12) * 60 + minutes) / (12 * 60);
+            // Translate Y ranges from 0 to 180px down
+            document.getElementById('weight-left').style.transform = `translateY(${cycleProgress * 180}px)`;
+            // Right weight moves opposite or slightly differently. Let's make it descend as left goes up (simulating winding)
+            document.getElementById('weight-right').style.transform = `translateY(${(1 - cycleProgress) * 180}px)`;
+
+            // Auto-Chime Logic
+            const currentTimeStr = `${hours}:${minutes}`;
+            if (seconds === 0 && !isCuckooing && lastChimeTime !== currentTimeStr) {
+                
+                // Top of the hour: Chime the hour count
+                if (minutes === 0) {
+                    lastChimeTime = currentTimeStr;
+                    let displayHour = hours % 12;
+                    if (displayHour === 0) displayHour = 12;
+                    runCuckooSequence(displayHour);
+                } 
+                // Half past the hour: Single chime
+                else if (minutes === 30) {
+                    lastChimeTime = currentTimeStr;
+                    runCuckooSequence(1);
+                }
+            }
+
+            requestAnimationFrame(updateClock);
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            createNumerals();
+            updateClock();
+        });
+
+    </script>
+</body>
+</html>
