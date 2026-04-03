@@ -64,6 +64,11 @@
             z-index: 10;
             pointer-events: none;
         }
+
+        .settings-modal {
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(20px);
+        }
     </style>
 </head>
 <body class="min-h-screen text-slate-300">
@@ -90,8 +95,11 @@
                     <option value="zh-CN">Chinese (Mandarin)</option>
                     <option value="ja-JP">Japanese</option>
                 </select>
+                <button id="openSettings" class="p-2.5 px-4 bg-slate-800/80 border border-slate-700 text-slate-400 hover:text-white rounded-xl transition-all shadow-inner" title="API Settings">
+                    <i class="fa-solid fa-gear"></i>
+                </button>
                 <div id="statusIndicator" class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-xs font-bold text-slate-400 uppercase tracking-widest transition-all shadow-inner">
-                    <span class="w-2 h-2 rounded-full bg-slate-500 shadow-[0_0_8px_rgba(100,116,139,0.5)]" id="statusDot"></span>
+                    <span class="w-2 h-2 rounded-full bg-slate-500" id="statusDot"></span>
                     <span id="statusText">Standby</span>
                 </div>
             </div>
@@ -130,13 +138,35 @@
                     </div>
                 </div>
                 
-                <div id="toast" class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-6 py-3 rounded-full text-sm font-bold shadow-lg shadow-indigo-600/30 opacity-0 transition-all transform translate-y-4 pointer-events-none flex items-center gap-2">
+                <div id="toast" class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-6 py-3 rounded-full text-sm font-bold shadow-lg shadow-indigo-600/30 opacity-0 transition-all transform translate-y-4 pointer-events-none flex items-center gap-2 z-50">
                     <i class="fa-solid fa-circle-check"></i> <span id="toastMsg">Action successful!</span>
                 </div>
             </div>
         </main>
     </div>
 
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+        <div class="settings-modal border border-white/10 rounded-2xl p-8 max-w-md w-full shadow-2xl">
+            <h3 class="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-key text-indigo-400"></i> API Settings
+            </h3>
+            <p class="text-slate-400 text-sm mb-6">Enter your Gemini API key to use cloud features. You can get one for free at <a href="https://aistudio.google.com/" target="_blank" class="text-indigo-400 hover:underline">Google AI Studio</a>.</p>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1 block">Gemini API Key</label>
+                    <input type="password" id="apiKeyInput" placeholder="Paste your key here" class="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all">
+                </div>
+                <div class="flex gap-3 mt-8">
+                    <button id="saveSettings" class="flex-1 premium-btn text-white py-3 rounded-xl font-bold">Save Changes</button>
+                    <button id="closeSettings" class="px-6 bg-slate-800 text-slate-400 rounded-xl font-bold">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Modal -->
     <div id="errorModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
         <div class="bg-slate-900 border border-slate-700 rounded-2xl p-8 max-w-md w-full shadow-2xl">
             <div class="w-16 h-16 bg-red-500/10 border border-red-500/20 text-red-500 rounded-2xl flex items-center justify-center text-2xl mb-6 shadow-[0_0_15px_rgba(239,68,68,0.2)]">
@@ -149,11 +179,8 @@
     </div>
 
     <script>
-        const apiKey = ""; // Swapped by runtime
-        
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         
-        // State management
         let isRecording = false;
         let sessionActive = false;
         let finalTranscript = '';
@@ -166,7 +193,6 @@
         let chunksSpeaking = 0;
         let silenceTimer = null;
 
-        // Persistent Audio logic
         let audioContext, analyser, microphone, animationId, globalStream;
         const canvas = document.getElementById('voxMeter');
         const canvasCtx = canvas.getContext('2d');
@@ -174,6 +200,11 @@
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const openSettings = document.getElementById('openSettings');
+        const closeSettings = document.getElementById('closeSettings');
+        const saveSettings = document.getElementById('saveSettings');
+        const settingsModal = document.getElementById('settingsModal');
+        const apiKeyInput = document.getElementById('apiKeyInput');
         const languageSelect = document.getElementById('languageSelect');
         const aiModelSelect = document.getElementById('aiModelSelect');
         const ollamaGroup = document.getElementById('ollamaGroup');
@@ -188,20 +219,24 @@
 
         const synth = window.speechSynthesis;
 
-        async function fetchWithRetry(url, options, retries = 5, backoff = 1000) {
-            try {
-                const response = await fetch(url, options);
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${errorText}`);
-                }
-                return response;
-            } catch (error) {
-                if (retries <= 0) throw error;
-                await new Promise(resolve => setTimeout(resolve, backoff));
-                return fetchWithRetry(url, options, retries - 1, backoff * 2);
-            }
-        }
+        // --- PERSISTENCE LOGIC ---
+        let savedApiKey = localStorage.getItem('voxscribe_gemini_key') || "";
+        apiKeyInput.value = savedApiKey;
+
+        const savedLang = localStorage.getItem('voxscribe_language');
+        if (savedLang) languageSelect.value = savedLang;
+
+        languageSelect.addEventListener('change', () => {
+            localStorage.setItem('voxscribe_language', languageSelect.value);
+            if (sessionActive) { 
+                recognition.stop(); 
+                setTimeout(() => { recognition.lang = languageSelect.value; recognition.start(); }, 400); 
+            } 
+        });
+
+        aiModelSelect.addEventListener('change', () => {
+            localStorage.setItem('voxscribe_ai_model', aiModelSelect.value);
+        });
 
         async function fetchOllamaModels() {
             try {
@@ -211,6 +246,7 @@
                 clearTimeout(timeoutId);
                 if (!response.ok) throw new Error();
                 const data = await response.json();
+                
                 ollamaGroup.innerHTML = '';
                 if (data.models && data.models.length > 0) {
                     data.models.forEach(model => {
@@ -219,6 +255,12 @@
                         option.textContent = model.name;
                         ollamaGroup.appendChild(option);
                     });
+                    
+                    const savedModel = localStorage.getItem('voxscribe_ai_model');
+                    if (savedModel && savedModel.startsWith('ollama:')) {
+                        const exists = data.models.some(m => 'ollama:' + m.name === savedModel);
+                        if (exists) aiModelSelect.value = savedModel;
+                    }
                 } else {
                     ollamaGroup.innerHTML = '<option value="" disabled>No models found</option>';
                 }
@@ -234,8 +276,23 @@
                 globalStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 return globalStream;
             } catch (err) {
-                showError("Microphone access is required for conversation. Check site permissions.");
+                showError("Microphone access was denied. Hosting this on a local server (http://localhost:port) helps browsers remember your choice.");
                 return null;
+            }
+        }
+
+        async function fetchWithRetry(url, options, retries = 3, backoff = 1000) {
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                return response;
+            } catch (error) {
+                if (retries <= 0) throw error;
+                await new Promise(resolve => setTimeout(resolve, backoff));
+                return fetchWithRetry(url, options, retries - 1, backoff * 2);
             }
         }
 
@@ -292,7 +349,13 @@
             };
 
             recognition.onresult = (event) => {
-                if (isAITalking) return;
+                // AGGRESSIVE ECHO PREVENTION: 
+                // If AI is talking, immediately discard and clear buffers.
+                if (isAITalking) {
+                    finalTranscript = '';
+                    return;
+                }
+
                 clearTimeout(silenceTimer);
                 let interimTranscript = '';
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -303,21 +366,24 @@
                         interimTranscript += transcript;
                     }
                 }
+                
                 updateCurrentTranscriptUI(interimTranscript);
+
+                // Start silence timer to trigger AI
                 silenceTimer = setTimeout(() => {
                     const text = finalTranscript.trim();
                     if (text.length > 0) {
                         handleUserMessage(text);
                         finalTranscript = ''; 
                     }
-                }, 1500);
+                }, 1600);
             };
 
             recognition.onerror = (event) => {
                 if (event.error === 'no-speech' || event.error === 'aborted') return;
                 console.error('Recognition error:', event.error);
                 if (event.error === 'not-allowed') {
-                    showError("Mic permission blocked. Click the 'Shield' icon in your browser address bar.");
+                    showError("Mic permission blocked. Check URL bar Shield/Lock icon.");
                 }
                 stopSession();
             };
@@ -386,7 +452,6 @@
             if (preferredVoice) utterance.voice = preferredVoice;
             utterance.rate = 1.05; 
             
-            // Protect from garbage collection
             window.speechUtterances.push(utterance);
 
             utterance.onend = () => {
@@ -401,14 +466,15 @@
 
         function checkConversationResume() {
             if (streamComplete && chunksSpeaking === 0) {
-                // ECHO GUARD:
+                // INCREASED ECHO GUARD GAP: 
+                // We wait 1 full second after AI finishes to ensure speakers are silent 
+                // and any internal browser STT buffer is cleared.
                 setTimeout(() => {
+                    finalTranscript = ''; // Extra wipe of the transcript buffer
                     isAITalking = false;
                     statusDot.classList.remove('recording-pulse');
-                    if (sessionActive) {
-                        updateUI(); 
-                    }
-                }, 500);
+                    if (sessionActive) updateUI(); 
+                }, 1000);
             }
         }
 
@@ -425,7 +491,12 @@
 
             appendMessageToChat('user', text);
             const selectedModel = aiModelSelect.value;
-            isAITalking = true;
+            
+            // ACTIVATE MUTE:
+            isAITalking = true; 
+            finalTranscript = ''; // Clear user text buffer immediately
+            clearTimeout(silenceTimer); // Stop any pending AI triggers
+            
             streamComplete = false;
             chunksSpeaking = 0;
             window.speechUtterances = []; 
@@ -435,12 +506,12 @@
             statusDot.className = "w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.8)]";
             statusDot.classList.add('recording-pulse');
 
-            const systemPrompt = "You are a friendly person having a spoken conversation. Keep responses very brief (1-2 sentences max), conversational, and no markdown.";
+            const systemPrompt = "You are a friendly, natural British person having a casual spoken conversation. Keep your responses extremely brief (usually one sentence, max two). Speak casually and warmly. Avoid formal AI language, lists, or markdown. Just act like a mate chatting over tea.";
 
             try {
                 if (selectedModel === 'gemini') {
-                    const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=" + apiKey;
-                    
+                    if (!savedApiKey) throw new Error("Missing Gemini API Key. Check Settings.");
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${savedApiKey}`;
                     const geminiContents = chatHistory.map(msg => ({
                         role: msg.role === 'assistant' ? 'model' : 'user',
                         parts: [{ text: msg.content }]
@@ -449,18 +520,14 @@
                     const response = await fetchWithRetry(url, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            systemInstruction: { parts: [{ text: systemPrompt }] }, 
-                            contents: geminiContents 
-                        })
+                        body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt }] }, contents: geminiContents })
                     });
                     
                     const data = await response.json();
-                    const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
+                    const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
                     
                     appendMessageToChat('assistant', aiResponse);
                     statusText.innerText = "AI Speaking...";
-
                     streamComplete = true;
                     speakFullResponse(aiResponse);
 
@@ -485,22 +552,17 @@
                         if (done) {
                             streamComplete = true;
                             statusText.innerText = "AI Speaking...";
-                            // Speak the full response text once the stream is finished
                             speakFullResponse(aiResponseText);
                             break;
                         }
-                        
                         streamBuffer += decoder.decode(value, { stream: true });
                         const lines = streamBuffer.split('\n');
                         streamBuffer = lines.pop(); 
-                        
                         for (const line of lines) {
                             if (!line.trim()) continue;
                             try {
                                 const json = JSON.parse(line);
-                                const token = json.message?.content || "";
-                                aiResponseText += token;
-                                // Update UI Live
+                                aiResponseText += json.message?.content || "";
                                 msgDiv.innerText = aiResponseText;
                                 transcriptArea.scrollTop = transcriptArea.scrollHeight;
                             } catch (e) {}
@@ -517,21 +579,13 @@
 
         async function startSession() {
             if (sessionActive) return;
-            
             const stream = await getPersistentMicStream();
             if (!stream) return;
-
             if (synth.speaking) synth.cancel();
-            
             finalTranscript = '';
             recognition.lang = languageSelect.value;
             sessionActive = true;
-            
-            try {
-                recognition.start(); 
-            } catch (e) {
-                console.warn("Recognition already active");
-            }
+            try { recognition.start(); } catch (e) {}
         }
 
         function stopSession() {
@@ -568,16 +622,20 @@
         startBtn.addEventListener('click', startSession);
         stopBtn.addEventListener('click', stopSession);
         
+        openSettings.addEventListener('click', () => settingsModal.classList.remove('hidden'));
+        closeSettings.addEventListener('click', () => settingsModal.classList.add('hidden'));
+        saveSettings.addEventListener('click', () => {
+            savedApiKey = apiKeyInput.value.trim();
+            localStorage.setItem('voxscribe_gemini_key', savedApiKey);
+            settingsModal.classList.add('hidden');
+            toastMsg.innerText = "Settings Saved";
+            toast.style.opacity = '1';
+            setTimeout(() => toast.style.opacity = '0', 2000);
+        });
+        
         if (speechSynthesis.onvoiceschanged !== undefined) {
             speechSynthesis.onvoiceschanged = () => synth.getVoices();
         }
-        
-        languageSelect.addEventListener('change', () => { 
-            if (sessionActive) { 
-                recognition.stop(); 
-                setTimeout(() => { recognition.lang = languageSelect.value; recognition.start(); }, 400); 
-            } 
-        });
 
         initRecognition();
     </script>
