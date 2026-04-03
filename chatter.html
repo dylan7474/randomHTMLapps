@@ -265,8 +265,6 @@
         function initRecognition() {
             if (!SpeechRecognition) return;
             recognition = new SpeechRecognition();
-            // KEY CHANGE: Continuous mode prevents the engine from shutting down on every pause.
-            // This stops the repeated browser permission prompts.
             recognition.continuous = true; 
             recognition.interimResults = true;
             recognition.lang = languageSelect.value;
@@ -296,12 +294,11 @@
                 updateCurrentTranscriptUI(interimTranscript);
 
                 // Detection of Finished Thought:
-                // If the user stops talking for 1.5 seconds, we assume they are done and send to AI.
                 silenceTimer = setTimeout(() => {
                     const text = finalTranscript.trim();
                     if (text.length > 0) {
                         handleUserMessage(text);
-                        finalTranscript = ''; // Reset for next turn
+                        finalTranscript = ''; 
                     }
                 }, 1500);
             };
@@ -316,8 +313,6 @@
             };
 
             recognition.onend = () => {
-                // In continuous mode, onend only fires if the engine crashed or was stopped.
-                // We restart it only if the session is still active.
                 if (sessionActive) {
                     try { recognition.start(); } catch(e) {}
                 } else {
@@ -390,15 +385,16 @@
 
         function checkConversationResume() {
             if (streamComplete && chunksSpeaking === 0) {
-                // AI is done talking and streaming is finished.
-                isAITalking = false;
-                statusDot.classList.remove('recording-pulse');
-                
-                if (sessionActive) {
-                    // In continuous mode, the mic is already "open". 
-                    // We just update the UI to show we are listening again.
-                    updateUI(); 
-                }
+                // ADDING ECHO GUARD:
+                // Wait 500ms after AI finishes speaking to ensure the room echo 
+                // and hardware speaker latency have settled.
+                setTimeout(() => {
+                    isAITalking = false;
+                    statusDot.classList.remove('recording-pulse');
+                    if (sessionActive) {
+                        updateUI(); 
+                    }
+                }, 500);
             }
         }
 
@@ -415,7 +411,7 @@
 
             appendMessageToChat('user', text);
             const selectedModel = aiModelSelect.value;
-            isAITalking = true; // This mutes processing of the microphone input
+            isAITalking = true;
             streamComplete = false;
             chunksSpeaking = 0;
             window.speechUtterances = []; 
@@ -520,7 +516,7 @@
             sessionActive = true;
             
             try {
-                recognition.start(); // Only called once here!
+                recognition.start(); 
             } catch (e) {
                 console.warn("Recognition already active");
             }
