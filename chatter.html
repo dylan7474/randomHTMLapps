@@ -11,7 +11,7 @@
         
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #0B0F19; /* Deep luxury dark */
+            background-color: #0B0F19;
             background-image: 
                 radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), 
                 radial-gradient(at 50% 0%, hsla(225,39%,30%,0.1) 0, transparent 50%), 
@@ -54,9 +54,6 @@
             background: rgba(255, 255, 255, 0.1);
             border-radius: 10px;
         }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
 
         #editorContainer::before {
             content: '';
@@ -72,7 +69,6 @@
 <body class="min-h-screen text-slate-300">
 
     <div class="max-w-5xl mx-auto px-4 py-8 md:py-12">
-        <!-- Header -->
         <header class="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-6">
             <div>
                 <h1 class="text-4xl font-bold text-white flex items-center gap-3 tracking-tight">
@@ -81,13 +77,13 @@
                     </div>
                     VoxScribe <span class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 text-2xl">Pro</span>
                 </h1>
-                <p class="text-slate-400 mt-2 text-sm font-medium tracking-wide">Studio-grade speech recognition</p>
+                <p class="text-slate-400 mt-2 text-sm font-medium tracking-wide">Conversational AI Voice Interface</p>
             </div>
             
             <div class="flex items-center gap-4">
                 <select id="languageSelect" class="bg-slate-800/80 border border-slate-700 text-white rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer">
-                    <option value="en-US">English (US)</option>
                     <option value="en-GB" selected>English (UK)</option>
+                    <option value="en-US">English (US)</option>
                     <option value="es-ES">Spanish (Spain)</option>
                     <option value="fr-FR">French (France)</option>
                     <option value="de-DE">German</option>
@@ -101,19 +97,16 @@
             </div>
         </header>
 
-        <!-- Main Editor Area -->
         <main class="glass-panel rounded-2xl overflow-hidden relative">
-            <!-- Toolbar -->
             <div class="border-b border-white/5 p-4 md:px-6 bg-slate-900/40 flex flex-wrap items-center justify-between gap-4">
                 <div class="flex items-center gap-4">
                     <button id="startBtn" class="premium-btn flex items-center gap-2 text-white px-6 py-2.5 rounded-xl font-semibold transition-all active:scale-95">
-                        <i class="fa-solid fa-play text-sm"></i> Start Recording
+                        <i class="fa-solid fa-comments text-sm"></i> Start Conversation
                     </button>
                     <button id="stopBtn" class="stop-btn hidden flex items-center gap-2 text-white px-6 py-2.5 rounded-xl font-semibold transition-all active:scale-95">
-                        <i class="fa-solid fa-stop text-sm"></i> Stop
+                        <i class="fa-solid fa-power-off text-sm"></i> End Session
                     </button>
                     
-                    <!-- Vox Meter (Visualizer) -->
                     <div class="h-8 w-32 flex items-center justify-center opacity-0 transition-opacity duration-500" id="visualizerContainer">
                         <canvas id="voxMeter" width="120" height="24"></canvas>
                     </div>
@@ -130,13 +123,13 @@
                 </div>
             </div>
 
-            <!-- Content -->
             <div id="editorContainer" class="relative">
                 <div id="transcriptArea" class="min-h-[450px] max-h-[650px] overflow-y-auto p-6 md:p-10 text-lg md:text-xl leading-relaxed text-slate-200 custom-scrollbar flex flex-col gap-4 focus:outline-none" contenteditable="false">
-                    <div class="text-center w-full mt-10"><span class="text-slate-600 italic font-light">Awaiting your voice... Start recording to chat with AI.</span></div>
+                    <div class="text-center w-full mt-10" id="initialPlaceholder">
+                        <span class="text-slate-600 italic font-light">Click "Start Conversation" and say hello...</span>
+                    </div>
                 </div>
                 
-                <!-- Feedback Toast -->
                 <div id="toast" class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-6 py-3 rounded-full text-sm font-bold shadow-lg shadow-indigo-600/30 opacity-0 transition-all transform translate-y-4 pointer-events-none flex items-center gap-2">
                     <i class="fa-solid fa-circle-check"></i> <span id="toastMsg">Action successful!</span>
                 </div>
@@ -144,44 +137,39 @@
         </main>
     </div>
 
-    <!-- No Support Modal -->
     <div id="errorModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
         <div class="bg-slate-900 border border-slate-700 rounded-2xl p-8 max-w-md w-full shadow-2xl">
             <div class="w-16 h-16 bg-red-500/10 border border-red-500/20 text-red-500 rounded-2xl flex items-center justify-center text-2xl mb-6 shadow-[0_0_15px_rgba(239,68,68,0.2)]">
                 <i class="fa-solid fa-triangle-exclamation"></i>
             </div>
-            <h3 class="text-xl font-bold text-white mb-2">Browser Not Supported</h3>
-            <p class="text-slate-400 mb-6 text-sm leading-relaxed" id="errorMessage">Sorry, your browser doesn't support the Web Speech API. Please try using Google Chrome or Microsoft Edge.</p>
-            <button onclick="document.getElementById('errorModal').classList.add('hidden')" class="w-full bg-slate-100 text-slate-900 py-3 rounded-xl font-bold hover:bg-white transition-colors">Understood</button>
+            <h3 class="text-xl font-bold text-white mb-2">Notice</h3>
+            <p class="text-slate-400 mb-6 text-sm leading-relaxed" id="errorMessage"></p>
+            <button onclick="document.getElementById('errorModal').classList.add('hidden')" class="w-full bg-slate-100 text-slate-900 py-3 rounded-xl font-bold hover:bg-white transition-colors">Got it</button>
         </div>
     </div>
 
     <script>
-        // Check for browser support
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         
         // State management
         let isRecording = false;
+        let sessionActive = false;
         let finalTranscript = '';
         let recognition = null;
         let chatHistory = [];
         let isAITalking = false;
         
-        // TTS Streaming state
-        window.speechUtterances = []; // Prevents Chrome's garbage collection bug
+        window.speechUtterances = []; 
         let streamComplete = false;
         let chunksSpeaking = 0;
+        let silenceTimer = null;
 
-        // Web Audio API logic (Vox Meter)
-        let audioContext;
-        let analyser;
-        let microphone;
-        let animationId;
+        // Persistent Audio logic
+        let audioContext, analyser, microphone, animationId, globalStream;
         const canvas = document.getElementById('voxMeter');
         const canvasCtx = canvas.getContext('2d');
         const visualizerContainer = document.getElementById('visualizerContainer');
 
-        // DOM Elements
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const languageSelect = document.getElementById('languageSelect');
@@ -196,130 +184,107 @@
         const errorModal = document.getElementById('errorModal');
         const errorMessage = document.getElementById('errorMessage');
 
-        // Initialize TTS & API Keys
         const synth = window.speechSynthesis;
-        const apiKey = ""; // Injected by Canvas environment for Gemini
+        const apiKey = ""; 
 
-        // Fetch Ollama Models
         async function fetchOllamaModels() {
             try {
-                // Add an abort controller so it doesn't hang if Ollama is offline
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 3000);
-
+                const timeoutId = setTimeout(() => controller.abort(), 2000);
                 const response = await fetch('http://127.0.0.1:11434/api/tags', { signal: controller.signal });
                 clearTimeout(timeoutId);
-
-                if (!response.ok) throw new Error('Network response was not ok');
+                if (!response.ok) throw new Error();
                 const data = await response.json();
-                
                 ollamaGroup.innerHTML = '';
-                if (data.models.length === 0) {
+                if (data.models && data.models.length > 0) {
+                    data.models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = 'ollama:' + model.name;
+                        option.textContent = model.name;
+                        ollamaGroup.appendChild(option);
+                    });
+                } else {
                     ollamaGroup.innerHTML = '<option value="" disabled>No models found</option>';
-                    return;
                 }
-                
-                data.models.forEach(model => {
-                    const option = document.createElement('option');
-                    option.value = 'ollama:' + model.name;
-                    option.textContent = model.name;
-                    ollamaGroup.appendChild(option);
-                });
             } catch (error) {
-                console.warn('Ollama not reachable (Offline, HTTPS context, or CORS blocked).');
-                ollamaGroup.innerHTML = '<option value="" disabled>Local Ollama unavailable</option>';
-                // Removed the showError modal here so it doesn't block the app on load
+                ollamaGroup.innerHTML = '<option value="" disabled>Local Ollama unreachable</option>';
+            }
+        }
+        fetchOllamaModels();
+
+        async function getPersistentMicStream() {
+            if (globalStream) return globalStream;
+            try {
+                globalStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                return globalStream;
+            } catch (err) {
+                showError("Microphone access is required for conversation. Check site permissions.");
+                return null;
             }
         }
 
-        fetchOllamaModels();
-
-        if (!SpeechRecognition) {
-            showError("Your browser doesn't support the Web Speech API. This feature requires Google Chrome, Microsoft Edge, or Safari.");
-        } else {
-            initRecognition();
-        }
-
-        // Initialize Audio Visualizer
-        async function startVisualizer() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                
+        function startVisualizer(stream) {
+            if (!stream) return;
+            if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 analyser = audioContext.createAnalyser();
                 microphone = audioContext.createMediaStreamSource(stream);
-                
                 microphone.connect(analyser);
-                
-                analyser.fftSize = 64; 
-                const bufferLength = analyser.frequencyBinCount;
-                const dataArray = new Uint8Array(bufferLength);
-
-                visualizerContainer.classList.remove('opacity-0');
-
-                function draw() {
-                    if(!isRecording) return;
-                    
-                    animationId = requestAnimationFrame(draw);
-                    analyser.getByteFrequencyData(dataArray);
-
-                    canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-                    
-                    const barWidth = (canvas.width / bufferLength) * 1.5;
-                    let x = 0;
-
-                    for(let i = 0; i < bufferLength; i++) {
-                        let barHeight = (dataArray[i] / 255) * canvas.height;
-                        if(barHeight < 2) barHeight = 2; 
-                        
-                        const r = 99 + (barHeight * 2);
-                        const g = 102;
-                        const b = 241 + (barHeight);
-                        
-                        canvasCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-                        
-                        const y = (canvas.height - barHeight) / 2;
-                        
-                        canvasCtx.beginPath();
-                        canvasCtx.roundRect(x, y, barWidth - 1, barHeight, 2);
-                        canvasCtx.fill();
-                        
-                        x += barWidth;
-                    }
-                }
-                draw();
-            } catch (err) {
-                console.warn("Could not start visualizer (microphone access):", err);
+                analyser.fftSize = 64;
             }
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            visualizerContainer.classList.remove('opacity-0');
+
+            function draw() {
+                if(!isRecording) return;
+                animationId = requestAnimationFrame(draw);
+                analyser.getByteFrequencyData(dataArray);
+                canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+                const barWidth = (canvas.width / bufferLength) * 1.5;
+                let x = 0;
+                for(let i = 0; i < bufferLength; i++) {
+                    let barHeight = (dataArray[i] / 255) * canvas.height;
+                    if(barHeight < 2) barHeight = 2; 
+                    canvasCtx.fillStyle = `rgb(${99 + (barHeight * 2)}, 102, ${241 + barHeight})`;
+                    const y = (canvas.height - barHeight) / 2;
+                    canvasCtx.beginPath();
+                    canvasCtx.roundRect(x, y, barWidth - 1, barHeight, 2);
+                    canvasCtx.fill();
+                    x += barWidth;
+                }
+            }
+            draw();
         }
 
         function stopVisualizer() {
             if (animationId) cancelAnimationFrame(animationId);
-            if (audioContext && audioContext.state !== 'closed') {
-                audioContext.close();
-            }
-            if(microphone) microphone.disconnect();
             visualizerContainer.classList.add('opacity-0');
-            setTimeout(() => canvasCtx.clearRect(0, 0, canvas.width, canvas.height), 500);
         }
 
         function initRecognition() {
+            if (!SpeechRecognition) return;
             recognition = new SpeechRecognition();
-            // Crucial change: Turn OFF continuous mode so the microphone naturally shuts off 
-            // when you stop talking, triggering the AI response.
-            recognition.continuous = false; 
+            // KEY CHANGE: Continuous mode prevents the engine from shutting down on every pause.
+            // This stops the repeated browser permission prompts.
+            recognition.continuous = true; 
             recognition.interimResults = true;
             recognition.lang = languageSelect.value;
 
             recognition.onstart = () => {
                 isRecording = true;
                 updateUI();
-                startVisualizer();
+                startVisualizer(globalStream);
             };
 
             recognition.onresult = (event) => {
+                // If AI is talking, we ignore what the mic hears (to prevent echo feedback)
+                if (isAITalking) return;
+
+                // Clear the silence timer because the user is still talking
+                clearTimeout(silenceTimer);
+
                 let interimTranscript = '';
-                
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
                     const transcript = event.results[i][0].transcript;
                     if (event.results[i].isFinal) {
@@ -328,38 +293,37 @@
                         interimTranscript += transcript;
                     }
                 }
-
                 updateCurrentTranscriptUI(interimTranscript);
+
+                // Detection of Finished Thought:
+                // If the user stops talking for 1.5 seconds, we assume they are done and send to AI.
+                silenceTimer = setTimeout(() => {
+                    const text = finalTranscript.trim();
+                    if (text.length > 0) {
+                        handleUserMessage(text);
+                        finalTranscript = ''; // Reset for next turn
+                    }
+                }, 1500);
             };
 
             recognition.onerror = (event) => {
-                if (event.error === 'no-speech') return; 
-                if (event.error === 'aborted') return;
-
-                console.error('Speech recognition error', event.error);
+                if (event.error === 'no-speech' || event.error === 'aborted') return;
+                console.error('Recognition error:', event.error);
                 if (event.error === 'not-allowed') {
-                    showError("Microphone access was denied. Please check your browser permissions.");
-                    stopRecording();
-                } else if (event.error === 'network') {
-                    showError("Network error. Speech recognition requires an internet connection.");
-                    stopRecording();
+                    showError("Mic permission blocked. Click the 'Shield' icon in your browser address bar.");
                 }
+                stopSession();
             };
 
             recognition.onend = () => {
-                stopVisualizer();
-                isRecording = false;
-                updateUI();
-                
-                // When silence is detected, send the captured text
-                const userText = finalTranscript.trim();
-                finalTranscript = '';
-                
-                if (userText.length > 0) {
-                    handleUserMessage(userText);
-                } else if (!document.getElementById('stopBtn').classList.contains('hidden') && !isAITalking) {
-                    // If user didn't speak but recording is still "on", restart mic
-                    startRecording();
+                // In continuous mode, onend only fires if the engine crashed or was stopped.
+                // We restart it only if the session is still active.
+                if (sessionActive) {
+                    try { recognition.start(); } catch(e) {}
+                } else {
+                    stopVisualizer();
+                    isRecording = false;
+                    updateUI();
                 }
             };
         }
@@ -367,8 +331,7 @@
         function updateCurrentTranscriptUI(interim = '') {
             const tempMsg = document.getElementById('temp-msg');
             if (tempMsg) tempMsg.remove();
-            
-            const placeholder = transcriptArea.querySelector('.italic');
+            const placeholder = document.getElementById('initialPlaceholder');
             if (placeholder) placeholder.remove();
 
             if (finalTranscript || interim) {
@@ -382,9 +345,8 @@
         }
 
         function appendMessageToChat(role, text) {
-            const placeholder = transcriptArea.querySelector('.italic');
+            const placeholder = document.getElementById('initialPlaceholder');
             if (placeholder) placeholder.remove();
-            
             const tempMsg = document.getElementById('temp-msg');
             if (tempMsg) tempMsg.remove();
 
@@ -397,323 +359,219 @@
             msgDiv.innerText = text;
             transcriptArea.appendChild(msgDiv);
             transcriptArea.scrollTop = transcriptArea.scrollHeight;
-            
             chatHistory.push({ role: role, content: text });
         }
 
-        // New Robust TTS Engine 
         function speakSentenceChunk(text) {
             if (!text.trim()) return;
-
             chunksSpeaking++;
             const utterance = new SpeechSynthesisUtterance(text);
-            
             const targetLang = languageSelect.value; 
             utterance.lang = targetLang;
             
             const voices = synth.getVoices();
-            const preferredVoice = voices.find(v => v.lang === targetLang || v.lang === targetLang.replace('-', '_')) 
+            const preferredVoice = voices.find(v => v.lang === targetLang) 
                 || voices.find(v => v.lang.startsWith(targetLang.split('-')[0])) 
                 || voices[0];
-                
-            if (preferredVoice) utterance.voice = preferredVoice;
             
+            if (preferredVoice) utterance.voice = preferredVoice;
             utterance.rate = 1.05; 
-
-            // Save reference to prevent silent audio cut-outs (Chrome GC bug)
             window.speechUtterances.push(utterance);
 
             utterance.onend = () => {
                 chunksSpeaking--;
-                // Clean up reference
                 const idx = window.speechUtterances.indexOf(utterance);
                 if (idx > -1) window.speechUtterances.splice(idx, 1);
-                
                 checkConversationResume();
             };
-
-            utterance.onerror = (e) => {
-                console.warn("TTS skipped/error:", e);
-                chunksSpeaking--;
-                checkConversationResume();
-            };
-
+            utterance.onerror = () => { chunksSpeaking--; checkConversationResume(); };
             synth.speak(utterance);
         }
 
         function checkConversationResume() {
-            // Only restart the mic if text generation is done AND audio is done playing
             if (streamComplete && chunksSpeaking === 0) {
+                // AI is done talking and streaming is finished.
                 isAITalking = false;
                 statusDot.classList.remove('recording-pulse');
                 
-                if (!document.getElementById('stopBtn').classList.contains('hidden')) {
-                    startRecording(); 
-                } else {
-                    updateUI();
+                if (sessionActive) {
+                    // In continuous mode, the mic is already "open". 
+                    // We just update the UI to show we are listening again.
+                    updateUI(); 
                 }
             }
         }
 
         async function handleUserMessage(text) {
-            appendMessageToChat('user', text);
-            
-            const selectedModel = aiModelSelect.value;
-            if (!selectedModel) {
-                showToast("Please select an AI model first.");
+            const exitPhrases = ['goodbye', 'bye bye', 'stop talking', 'exit conversation', 'shut down'];
+            if (exitPhrases.some(p => text.toLowerCase().includes(p))) {
+                appendMessageToChat('user', text);
+                appendMessageToChat('assistant', "Goodbye! Session terminated.");
+                speakSentenceChunk("Goodbye! Session terminated.");
+                streamComplete = true;
+                setTimeout(() => stopSession(), 2000);
                 return;
             }
 
-            isAITalking = true;
+            appendMessageToChat('user', text);
+            const selectedModel = aiModelSelect.value;
+            isAITalking = true; // This mutes processing of the microphone input
             streamComplete = false;
             chunksSpeaking = 0;
             window.speechUtterances = []; 
 
             statusText.innerText = "AI Thinking...";
-            statusIndicator.classList.replace('bg-slate-800/80', 'bg-purple-500/10');
-            statusIndicator.classList.replace('border-slate-700', 'border-purple-500/20');
-            statusIndicator.classList.replace('text-slate-400', 'text-purple-400');
-            statusDot.classList.replace('bg-slate-500', 'bg-purple-500');
+            statusIndicator.className = "flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs font-bold text-purple-400 uppercase tracking-widest transition-all shadow-inner";
+            statusDot.className = "w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.8)]";
             statusDot.classList.add('recording-pulse');
 
-            const systemPrompt = "You are a real person having a spoken conversation with the user. Keep your responses extremely brief, conversational, and natural. Do not use markdown, lists, or special formatting because this will be read aloud by a text-to-speech engine.";
+            const systemPrompt = "You are a friendly person having a spoken conversation. Keep responses very brief (1-2 sentences max), conversational, and no markdown.";
 
             try {
                 if (selectedModel === 'gemini') {
-                    // Gemini (Cloud API - Non-Streaming fallback)
                     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
                     const geminiHistory = chatHistory.map(msg => ({
                         role: msg.role === 'assistant' ? 'model' : 'user',
                         parts: [{ text: msg.content }]
                     }));
-
+                    
                     const response = await fetch(url, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            systemInstruction: { parts: [{ text: systemPrompt }] },
-                            contents: geminiHistory
-                        })
+                        body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt }] }, contents: geminiHistory })
                     });
-
-                    if (!response.ok) throw new Error('Gemini API failed');
+                    
+                    if (!response.ok) throw new Error("Cloud AI failed");
                     const data = await response.json();
                     const aiResponse = data.candidates[0].content.parts[0].text;
-                
+                    
                     appendMessageToChat('assistant', aiResponse);
-                    statusText.innerText = "AI Speaking...";
-
-                    // Chunk the full response to prevent TTS from crashing
-                    const sentences = aiResponse.match(/[^.!?]+[.!?]+|\s*$/g).filter(s => s.trim());
-                    if (sentences.length === 0) {
-                        streamComplete = true;
-                        checkConversationResume();
-                    } else {
-                        sentences.forEach(s => speakSentenceChunk(s));
-                        streamComplete = true; 
-                    }
+                    const sentences = aiResponse.match(/[^.!?]+[.!?]+|\s*$/g)?.filter(s => s.trim()) || [aiResponse];
+                    sentences.forEach(s => speakSentenceChunk(s));
+                    streamComplete = true; 
+                    if (sentences.length === 0) checkConversationResume();
 
                 } else if (selectedModel.startsWith('ollama:')) {
-                    // Ollama (Local AI - High-Speed Streaming)
                     const ollamaModelName = selectedModel.replace('ollama:', '');
-                    
-                    const placeholder = transcriptArea.querySelector('.italic');
-                    if (placeholder) placeholder.remove();
-
-                    // Create the live-typing message box
                     const msgDiv = document.createElement('div');
                     msgDiv.className = 'self-start bg-slate-800 border border-slate-700 text-slate-200 rounded-2xl rounded-tl-sm px-5 py-3 max-w-[85%] shadow-lg mr-auto';
                     transcriptArea.appendChild(msgDiv);
 
                     const response = await fetch('http://127.0.0.1:11434/api/chat', {
                         method: 'POST',
-                        headers: { 
-                            'Accept': 'application/json',
-                            'Content-Type': 'application/json' 
-                        },
-                        body: JSON.stringify({
-                            model: ollamaModelName,
-                            messages: [
-                                { role: 'system', content: systemPrompt },
-                                ...chatHistory
-                            ],
-                            stream: true // Enabled!
-                        })
+                        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ model: ollamaModelName, messages: [{ role: 'system', content: systemPrompt }, ...chatHistory], stream: true })
                     });
-
-                    if (!response.ok) {
-                        const errText = await response.text();
-                        throw new Error(`Ollama Error (${response.status}): ${errText}`);
-                    }
-
-                    statusText.innerText = "AI Speaking...";
                     
+                    if (!response.ok) throw new Error("Ollama connection failed.");
+
                     const reader = response.body.getReader();
                     const decoder = new TextDecoder("utf-8");
-                    let aiResponseText = "";
-                    let sentenceBuffer = "";
-                    let streamBuffer = ""; // Add buffer for incomplete chunks
+                    let aiResponseText = "", sentenceBuffer = "", streamBuffer = "";
 
-                    // Stream Processor
                     while (true) {
                         const { done, value } = await reader.read();
                         if (done) {
                             streamComplete = true;
-                            // Speak any leftover text
-                            if (sentenceBuffer.trim()) {
-                                speakSentenceChunk(sentenceBuffer);
-                            } else {
-                                checkConversationResume();
-                            }
+                            if (sentenceBuffer.trim()) speakSentenceChunk(sentenceBuffer);
+                            else checkConversationResume();
                             break;
                         }
-
-                        // Safely combine new chunk with leftover incomplete data
+                        
                         streamBuffer += decoder.decode(value, { stream: true });
                         const lines = streamBuffer.split('\n');
+                        streamBuffer = lines.pop(); 
                         
-                        // Pop the last element (it might be an incomplete JSON string) and keep it in the buffer
-                        streamBuffer = lines.pop();
-
                         for (const line of lines) {
-                            if (!line.trim()) continue; // Skip empty lines
-                            
+                            if (!line.trim()) continue;
                             try {
                                 const json = JSON.parse(line);
                                 const token = json.message?.content || "";
-
                                 aiResponseText += token;
                                 sentenceBuffer += token;
-                                
-                                // Update UI Live
                                 msgDiv.innerText = aiResponseText;
                                 transcriptArea.scrollTop = transcriptArea.scrollHeight;
-
-                                // Break audio queue at punctuation boundaries for instant speech
                                 if (/[.!?]\s/.test(sentenceBuffer) || /\n/.test(sentenceBuffer)) {
                                     speakSentenceChunk(sentenceBuffer);
                                     sentenceBuffer = "";
                                 }
-                            } catch (e) {
-                                console.warn("Failed to parse stream chunk, skipping:", line);
-                            }
+                            } catch (e) {}
                         }
                     }
                     chatHistory.push({ role: 'assistant', content: aiResponseText });
                 }
-                
             } catch (error) {
-                console.error("AI Error:", error);
-                appendMessageToChat('assistant', `Connection Error: ${error.message}. (Browser blocked the request or Ollama is unreachable)`);
+                appendMessageToChat('assistant', `Error: ${error.message}`);
                 streamComplete = true; 
                 checkConversationResume();
             }
         }
 
-        function startRecording() {
-            if (!recognition || isAITalking) return;
+        async function startSession() {
+            if (sessionActive) return;
             
-            if(synth.speaking || synth.pending) synth.cancel();
+            const stream = await getPersistentMicStream();
+            if (!stream) return;
+
+            if (synth.speaking) synth.cancel();
             
             finalTranscript = '';
             recognition.lang = languageSelect.value;
+            sessionActive = true;
+            
             try {
-                recognition.start();
-                startBtn.classList.add('hidden');
-                stopBtn.classList.remove('hidden');
+                recognition.start(); // Only called once here!
             } catch (e) {
-                console.error("Recognition already started", e);
+                console.warn("Recognition already active");
             }
         }
 
-        function stopRecording() {
-            if (!recognition) return;
-            recognition.stop();
-            if(synth.speaking || synth.pending) synth.cancel();
-            
+        function stopSession() {
+            sessionActive = false;
+            if (recognition) recognition.stop();
+            if (synth.speaking) synth.cancel();
             isAITalking = false;
-            window.speechUtterances = []; // Clear queue
+            window.speechUtterances = [];
             chunksSpeaking = 0;
-            
-            startBtn.classList.remove('hidden');
-            stopBtn.classList.add('hidden');
+            stopVisualizer();
             updateUI();
         }
 
         function updateUI() {
             if (isAITalking) return; 
-
             if (isRecording) {
                 startBtn.classList.add('hidden');
                 stopBtn.classList.remove('hidden');
-                
-                statusIndicator.classList.remove('bg-slate-800/80', 'bg-purple-500/10');
-                statusIndicator.classList.add('bg-red-500/10');
-                
-                statusIndicator.classList.remove('border-slate-700', 'border-purple-500/20');
-                statusIndicator.classList.add('border-red-500/20');
-                
-                statusIndicator.classList.remove('text-slate-400', 'text-purple-400');
-                statusIndicator.classList.add('text-red-400');
-                
-                statusDot.classList.remove('bg-slate-500', 'bg-purple-500');
-                statusDot.classList.add('bg-red-500');
-                statusDot.classList.replace('shadow-[0_0_8px_rgba(100,116,139,0.5)]', 'shadow-[0_0_12px_rgba(239,68,68,0.8)]');
-                
+                statusIndicator.className = "flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs font-bold text-red-400 uppercase tracking-widest transition-all shadow-inner";
+                statusDot.className = "w-2 h-2 rounded-full bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.8)]";
                 statusText.innerText = "Listening...";
             } else {
                 startBtn.classList.remove('hidden');
                 stopBtn.classList.add('hidden');
-                
-                statusIndicator.classList.remove('bg-red-500/10', 'bg-purple-500/10');
-                statusIndicator.classList.add('bg-slate-800/80');
-                
-                statusIndicator.classList.remove('border-red-500/20', 'border-purple-500/20');
-                statusIndicator.classList.add('border-slate-700');
-                
-                statusIndicator.classList.remove('text-red-400', 'text-purple-400');
-                statusIndicator.classList.add('text-slate-400');
-                
-                statusDot.classList.remove('bg-red-500', 'bg-purple-500');
-                statusDot.classList.add('bg-slate-500');
-                statusDot.classList.replace('shadow-[0_0_12px_rgba(239,68,68,0.8)]', 'shadow-[0_0_8px_rgba(100,116,139,0.5)]');
+                statusIndicator.className = "flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-xs font-bold text-slate-400 uppercase tracking-widest transition-all shadow-inner";
+                statusDot.className = "w-2 h-2 rounded-full bg-slate-500 shadow-[0_0_8px_rgba(100,116,139,0.5)]";
                 statusDot.classList.remove('recording-pulse');
-                
                 statusText.innerText = "Standby";
             }
         }
 
-        function showError(msg) {
-            errorMessage.innerText = msg;
-            errorModal.classList.remove('hidden');
-        }
+        function showError(msg) { errorMessage.innerText = msg; errorModal.classList.remove('hidden'); }
 
-        function showToast(message) {
-            toastMsg.innerText = message;
-            toast.style.opacity = '1';
-            toast.style.transform = 'translate(-50%, 0)';
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                toast.style.transform = 'translate(-50%, 16px)';
-            }, 2500);
-        }
-
-        // Event Listeners
-        startBtn.addEventListener('click', startRecording);
-        stopBtn.addEventListener('click', stopRecording);
+        startBtn.addEventListener('click', startSession);
+        stopBtn.addEventListener('click', stopSession);
         
-        // Fix for Chrome caching voices asynchronously
         if (speechSynthesis.onvoiceschanged !== undefined) {
             speechSynthesis.onvoiceschanged = () => synth.getVoices();
         }
-
-        languageSelect.addEventListener('change', () => {
-            if (isRecording) {
-                stopRecording();
-                setTimeout(() => startRecording(), 300);
-            }
+        
+        languageSelect.addEventListener('change', () => { 
+            if (sessionActive) { 
+                recognition.stop(); 
+                setTimeout(() => { recognition.lang = languageSelect.value; recognition.start(); }, 400); 
+            } 
         });
 
+        initRecognition();
     </script>
 </body>
 </html>
