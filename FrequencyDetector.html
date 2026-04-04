@@ -83,6 +83,21 @@
                 </div>
             </div>
 
+            <!-- Display Settings -->
+            <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-none">
+                <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-3 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-cyan-500"></span> Display Settings
+                </h2>
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex justify-between text-[10px] text-slate-500 mb-1 font-mono">
+                            <span>WATERFALL SPEED</span><span id="speedDisplay" class="text-slate-300">Max</span>
+                        </div>
+                        <input type="range" id="waterfallSpeedSlider" min="1" max="10" value="10">
+                    </div>
+                </div>
+            </div>
+
             <!-- Algorithm Sensitivity -->
             <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-none">
                 <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-3 flex items-center gap-2">
@@ -263,6 +278,8 @@
         const minFreqDisplay = document.getElementById('minFreqDisplay');
         const maxFreqSlider = document.getElementById('maxFreqSlider');
         const maxFreqDisplay = document.getElementById('maxFreqDisplay');
+        const waterfallSpeedSlider = document.getElementById('waterfallSpeedSlider');
+        const speedDisplay = document.getElementById('speedDisplay');
         
         // DSP UI
         const profileNoiseBtn = document.getElementById('profileNoiseBtn');
@@ -296,6 +313,10 @@
         let minFreqTarget = parseInt(minFreqSlider.value);
         let maxFreqTarget = parseInt(maxFreqSlider.value);
         let maxPossibleFreq = 22050; 
+        
+        // Waterfall Speed State
+        let waterfallDelay = 10 - parseInt(waterfallSpeedSlider.value);
+        let waterfallFrameCounter = 0;
 
         // Resize Canvases dynamically
         function resizeCanvas() {
@@ -352,6 +373,13 @@
         thresholdSlider.addEventListener('input', (e) => {
             currentThreshold = parseInt(e.target.value);
             threshLabel.textContent = `${currentThreshold} dB`;
+        });
+        waterfallSpeedSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            waterfallDelay = 10 - val;
+            if (val === 10) speedDisplay.textContent = "Max";
+            else if (val === 1) speedDisplay.textContent = "Min";
+            else speedDisplay.textContent = val + "/10";
         });
         
         function enforceFreqBounds() {
@@ -642,13 +670,18 @@
             }
             specCtx.stroke();
 
-            // 2. SPECTROGRAM
-            waterCtx.drawImage(waterCanvas, 0, 0, wWidth, wHeight - 1, 0, 1, wWidth, wHeight - 1);
-            for (let x = 0; x < wWidth; x++) {
-                let bin = startBin + Math.floor((x / wWidth) * displayBins);
-                let db = displayArray[bin];
-                waterCtx.fillStyle = dbToColor(db);
-                waterCtx.fillRect(x, 0, 1, 1);
+            // 2. SPECTROGRAM (With speed control frame skipping)
+            if (waterfallFrameCounter >= waterfallDelay) {
+                waterCtx.drawImage(waterCanvas, 0, 0, wWidth, wHeight - 1, 0, 1, wWidth, wHeight - 1);
+                for (let x = 0; x < wWidth; x++) {
+                    let bin = startBin + Math.floor((x / wWidth) * displayBins);
+                    let db = displayArray[bin];
+                    waterCtx.fillStyle = dbToColor(db);
+                    waterCtx.fillRect(x, 0, 1, 1);
+                }
+                waterfallFrameCounter = 0;
+            } else {
+                waterfallFrameCounter++;
             }
 
             // 3. PEAK UI & HARMONIC CORRELATOR VISUALS
