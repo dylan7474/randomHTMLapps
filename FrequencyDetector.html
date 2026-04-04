@@ -20,6 +20,9 @@
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #475569; }
 
+        /* Custom Checkbox */
+        input[type=checkbox] { accent-color: #38bdf8; }
+
         /* Reticle overlay */
         .reticle-line { position: absolute; background-color: rgba(56, 189, 248, 0.5); pointer-events: none; z-index: 10; display: none; }
         #reticle-x { width: 1px; top: 0; bottom: 0; }
@@ -35,7 +38,7 @@
             <h1 class="text-lg font-bold bg-gradient-to-r from-sky-400 to-violet-400 bg-clip-text text-transparent tracking-wide uppercase">
                 FreqHunter Pro
             </h1>
-            <span class="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">v2.0 Dashboard</span>
+            <span class="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">v3.0 DSP Engine</span>
         </div>
         
         <div class="flex items-center gap-3">
@@ -101,7 +104,24 @@
                 </div>
             </div>
 
-            <!-- Cursor Info (New) -->
+            <!-- Advanced DSP (NEW) -->
+            <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-none">
+                <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-3 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-pink-500"></span> Advanced DSP
+                </h2>
+                <div class="space-y-3">
+                    <button id="profileNoiseBtn" class="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded text-[10px] font-bold tracking-wider uppercase transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
+                        <span id="profileNoiseTxt">Profile Environment Noise</span>
+                    </button>
+                    <label class="flex items-center gap-2 cursor-pointer opacity-50 transition-opacity" id="denoiseLabel">
+                        <input type="checkbox" id="denoiseToggle" class="w-3.5 h-3.5 rounded bg-slate-800 border-slate-600" disabled>
+                        <span class="text-[11px] text-slate-400">Enable Spectral Subtraction</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Cursor Info -->
             <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-none">
                 <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-2 flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-sky-500"></span> Cursor Telemetry
@@ -134,7 +154,7 @@
                         <span class="text-sm font-mono font-bold text-sky-300"><span id="freq-0"></span><span class="text-[9px] text-sky-500/70 ml-1">Hz</span></span>
                         <div class="text-right flex flex-col">
                             <span class="text-[10px] text-slate-300 font-mono"><span id="vol-0"></span> dB</span>
-                            <span class="text-[9px] text-violet-400 font-mono">+<span id="prom-0"></span> prom</span>
+                            <span id="prom-label-0" class="text-[9px] text-violet-400 font-mono"></span>
                         </div>
                     </div>
 
@@ -142,7 +162,7 @@
                         <span class="text-sm font-mono font-bold text-sky-300"><span id="freq-1"></span><span class="text-[9px] text-sky-500/70 ml-1">Hz</span></span>
                         <div class="text-right flex flex-col">
                             <span class="text-[10px] text-slate-300 font-mono"><span id="vol-1"></span> dB</span>
-                            <span class="text-[9px] text-violet-400 font-mono">+<span id="prom-1"></span> prom</span>
+                            <span id="prom-label-1" class="text-[9px] text-violet-400 font-mono"></span>
                         </div>
                     </div>
 
@@ -150,7 +170,7 @@
                         <span class="text-sm font-mono font-bold text-sky-300"><span id="freq-2"></span><span class="text-[9px] text-sky-500/70 ml-1">Hz</span></span>
                         <div class="text-right flex flex-col">
                             <span class="text-[10px] text-slate-300 font-mono"><span id="vol-2"></span> dB</span>
-                            <span class="text-[9px] text-violet-400 font-mono">+<span id="prom-2"></span> prom</span>
+                            <span id="prom-label-2" class="text-[9px] text-violet-400 font-mono"></span>
                         </div>
                     </div>
 
@@ -158,7 +178,7 @@
                         <span class="text-sm font-mono font-bold text-sky-300"><span id="freq-3"></span><span class="text-[9px] text-sky-500/70 ml-1">Hz</span></span>
                         <div class="text-right flex flex-col">
                             <span class="text-[10px] text-slate-300 font-mono"><span id="vol-3"></span> dB</span>
-                            <span class="text-[9px] text-violet-400 font-mono">+<span id="prom-3"></span> prom</span>
+                            <span id="prom-label-3" class="text-[9px] text-violet-400 font-mono"></span>
                         </div>
                     </div>
                 </div>
@@ -228,7 +248,7 @@
         const errorOverlay = document.getElementById('errorOverlay');
         const errorText = document.getElementById('errorText');
         
-        // Reticle / Cursor info
+        // Reticle
         const reticleX = document.getElementById('reticle-x');
         const reticleLabel = document.getElementById('reticle-label');
         const cursorFreq = document.getElementById('cursorFreq');
@@ -243,6 +263,12 @@
         const minFreqDisplay = document.getElementById('minFreqDisplay');
         const maxFreqSlider = document.getElementById('maxFreqSlider');
         const maxFreqDisplay = document.getElementById('maxFreqDisplay');
+        
+        // DSP UI
+        const profileNoiseBtn = document.getElementById('profileNoiseBtn');
+        const profileNoiseTxt = document.getElementById('profileNoiseTxt');
+        const denoiseToggle = document.getElementById('denoiseToggle');
+        const denoiseLabel = document.getElementById('denoiseLabel');
 
         // Audio State
         let audioCtx = null;
@@ -251,8 +277,18 @@
         let animationId = null;
         let isRunning = false;
         let isFrozen = false;
-        let dataArray = null;
+        
+        // Data Arrays
+        let rawDataArray = null;      // Raw output from analyser
+        let displayArray = null;      // Data after DSP is applied
         let peakHoldArray = null; 
+        
+        // DSP State
+        let noiseProfileArray = null; 
+        let isCapturingNoise = false;
+        let captureFramesCount = 0;
+        let captureTargetFrames = 60; // Approx 1 second
+        let hasNoiseProfile = false;
 
         // Settings State
         let currentProminence = parseInt(prominenceSlider.value);
@@ -261,12 +297,10 @@
         let maxFreqTarget = parseInt(maxFreqSlider.value);
         let maxPossibleFreq = 22050; 
 
-        // Resize Canvases dynamically to fill dashboard
+        // Resize Canvases dynamically
         function resizeCanvas() {
             specCanvas.width = specContainer.clientWidth;
             specCanvas.height = specContainer.clientHeight;
-            
-            // For spectrogram, clear history on resize to avoid artifacting
             waterCanvas.width = waterContainer.clientWidth;
             waterCanvas.height = waterContainer.clientHeight;
             waterCtx.fillStyle = '#020617';
@@ -280,31 +314,24 @@
             if (!isRunning) return;
             const rect = visualizerGroup.getBoundingClientRect();
             let x = e.clientX - rect.left;
-            
-            // Clamp X to visualizer bounds
             x = Math.max(0, Math.min(x, rect.width));
 
             reticleX.style.display = 'block';
             reticleLabel.style.display = 'block';
             reticleX.style.left = `${x}px`;
             
-            // Calculate Frequency at X
             const freq = minFreqTarget + (x / rect.width) * (maxFreqTarget - minFreqTarget);
             
-            // Update Tooltip
             reticleLabel.style.left = `${e.clientX}px`;
             reticleLabel.style.top = `${e.clientY}px`;
             reticleLabel.textContent = `${freq.toFixed(0)} Hz`;
-
-            // Update Side Panel
             cursorFreq.textContent = `${freq.toFixed(1)} Hz`;
 
-            // Find current volume if not frozen
-            if(dataArray && !isFrozen) {
+            if(displayArray && !isFrozen) {
                 const hzPerBin = audioCtx.sampleRate / analyser.fftSize;
                 const bin = Math.floor(freq / hzPerBin);
-                if(bin >= 0 && bin < dataArray.length) {
-                    let vol = dataArray[bin];
+                if(bin >= 0 && bin < displayArray.length) {
+                    let vol = displayArray[bin];
                     cursorVol.textContent = vol > -150 ? `${vol.toFixed(1)} dB` : '<-150 dB';
                 }
             }
@@ -317,8 +344,7 @@
             if(!isFrozen) cursorVol.textContent = '-- dB';
         });
 
-
-        // Event Listeners for UI
+        // Event Listeners for Basic UI
         prominenceSlider.addEventListener('input', (e) => {
             currentProminence = parseInt(e.target.value);
             promLabel.textContent = `${currentProminence} dB`;
@@ -331,15 +357,8 @@
         function enforceFreqBounds() {
             minFreqTarget = parseInt(minFreqSlider.value);
             maxFreqTarget = parseInt(maxFreqSlider.value);
-            
-            if (minFreqTarget >= maxFreqTarget) {
-                minFreqTarget = Math.max(0, maxFreqTarget - 100);
-                minFreqSlider.value = minFreqTarget;
-            }
-            if (maxFreqTarget <= minFreqTarget) {
-                maxFreqTarget = Math.min(maxPossibleFreq, minFreqTarget + 100);
-                maxFreqSlider.value = maxFreqTarget;
-            }
+            if (minFreqTarget >= maxFreqTarget) { minFreqTarget = Math.max(0, maxFreqTarget - 100); minFreqSlider.value = minFreqTarget; }
+            if (maxFreqTarget <= minFreqTarget) { maxFreqTarget = Math.min(maxPossibleFreq, minFreqTarget + 100); maxFreqSlider.value = maxFreqTarget; }
             
             minFreqDisplay.textContent = minFreqTarget + ' Hz';
             maxFreqDisplay.textContent = maxFreqTarget + ' Hz';
@@ -347,13 +366,27 @@
             maxViewLabel.textContent = `${maxFreqTarget} Hz`;
 
             if (peakHoldArray) peakHoldArray.fill(-150);
-            
             waterCtx.fillStyle = '#020617';
             waterCtx.fillRect(0, 0, waterCanvas.width, waterCanvas.height);
         }
 
         minFreqSlider.addEventListener('input', enforceFreqBounds);
         maxFreqSlider.addEventListener('input', enforceFreqBounds);
+
+        // DSP Logic
+        profileNoiseBtn.addEventListener('click', () => {
+            if (!isRunning) {
+                alert("Please initialize scanner first.");
+                return;
+            }
+            if (!isCapturingNoise) {
+                isCapturingNoise = true;
+                captureFramesCount = 0;
+                noiseProfileArray.fill(0);
+                profileNoiseTxt.textContent = "Capturing Noise Floor...";
+                profileNoiseBtn.classList.replace('bg-slate-800', 'bg-rose-600');
+            }
+        });
 
         // Freeze Logic
         freezeBtn.addEventListener('click', () => {
@@ -379,14 +412,17 @@
                 
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 analyser = audioCtx.createAnalyser();
-                analyser.fftSize = 16384; // High res
-                analyser.smoothingTimeConstant = 0.3; // Very low smoothing for fast waterfall
+                analyser.fftSize = 16384; 
+                analyser.smoothingTimeConstant = 0.3; 
                 
                 const source = audioCtx.createMediaStreamSource(stream);
                 source.connect(analyser);
 
-                dataArray = new Float32Array(analyser.frequencyBinCount);
-                peakHoldArray = new Float32Array(analyser.frequencyBinCount).fill(-150);
+                const binCount = analyser.frequencyBinCount;
+                rawDataArray = new Float32Array(binCount);
+                displayArray = new Float32Array(binCount);
+                peakHoldArray = new Float32Array(binCount).fill(-150);
+                noiseProfileArray = new Float32Array(binCount).fill(0);
                 
                 maxPossibleFreq = Math.round(audioCtx.sampleRate / 2);
                 maxFreqSlider.max = maxPossibleFreq;
@@ -471,11 +507,36 @@
                     let localAvg = count > 0 ? (localSum / count) : -120;
                     let prominence = val - localAvg;
                     if (prominence >= currentProminence) {
-                        peaks.push({ bin: i, freq: i * hzPerBin, db: val, prominence: prominence });
+                        peaks.push({ 
+                            bin: i, 
+                            freq: i * hzPerBin, 
+                            db: val, 
+                            prominence: prominence,
+                            isHarmonic: false,
+                            harmonicOf: null
+                        });
                     }
                 }
             }
+            
+            // Sort by prominence to find the fundamental (purest) strongest tones
             peaks.sort((a, b) => b.prominence - a.prominence);
+            
+            // DSP: Harmonic Correlator
+            // Check if secondary peaks are integer multiples of the strongest peak
+            if (peaks.length > 0) {
+                let fundamental = peaks[0].freq;
+                for (let i = 1; i < peaks.length; i++) {
+                    let ratio = peaks[i].freq / fundamental;
+                    let nearestInt = Math.round(ratio);
+                    // If it is within 1.5% of being a perfect multiple
+                    if (Math.abs(ratio - nearestInt) < 0.015 && nearestInt > 1) {
+                        peaks[i].isHarmonic = true;
+                        peaks[i].harmonicOf = nearestInt;
+                    }
+                }
+            }
+            
             return peaks;
         }
 
@@ -484,16 +545,53 @@
             if (!isRunning) return;
             animationId = requestAnimationFrame(draw);
 
-            // Skip drawing and data collection if frozen
             if (isFrozen) return;
 
-            analyser.getFloatFrequencyData(dataArray);
+            analyser.getFloatFrequencyData(rawDataArray);
+            const binCount = analyser.frequencyBinCount;
 
+            // DSP: Spectral Subtraction Capture
+            if (isCapturingNoise) {
+                for (let i = 0; i < binCount; i++) {
+                    // Accumulate raw DB
+                    noiseProfileArray[i] += rawDataArray[i];
+                }
+                captureFramesCount++;
+                
+                if (captureFramesCount >= captureTargetFrames) {
+                    for (let i = 0; i < binCount; i++) {
+                        noiseProfileArray[i] /= captureTargetFrames; // Average it out
+                    }
+                    isCapturingNoise = false;
+                    hasNoiseProfile = true;
+                    
+                    // Update UI
+                    profileNoiseBtn.classList.replace('bg-rose-600', 'bg-slate-800');
+                    profileNoiseTxt.textContent = "Recapture Noise";
+                    denoiseLabel.classList.remove('opacity-50');
+                    denoiseToggle.disabled = false;
+                    denoiseToggle.checked = true; // Auto-enable
+                }
+            }
+
+            // DSP: Processing pass
+            const doSubtraction = hasNoiseProfile && denoiseToggle.checked && !isCapturingNoise;
+            for (let i = 0; i < binCount; i++) {
+                if (doSubtraction) {
+                    // Difference between current and average noise
+                    let diff = rawDataArray[i] - noiseProfileArray[i];
+                    // Flatten the baseline to -110dB, and only show spikes
+                    displayArray[i] = -110 + Math.max(0, diff);
+                } else {
+                    displayArray[i] = rawDataArray[i];
+                }
+            }
+
+            // Drawing Dimensions
             const sWidth = specCanvas.width;
             const sHeight = specCanvas.height;
             const wWidth = waterCanvas.width;
             const wHeight = waterCanvas.height;
-            const binCount = analyser.frequencyBinCount;
             const hzPerBin = audioCtx.sampleRate / analyser.fftSize;
 
             let startBin = Math.max(0, Math.floor(minFreqTarget / hzPerBin));
@@ -513,16 +611,17 @@
             specCtx.stroke();
 
             const minDb = currentThreshold - 10;
-            const maxDb = -30;
+            const maxDb = doSubtraction ? -50 : -30; // Adjust visual headroom if denoised
             
-            // Peak Hold
+            // Peak Hold Path
             specCtx.beginPath();
             specCtx.strokeStyle = 'rgba(56, 189, 248, 0.2)';
             specCtx.lineWidth = 2;
             for (let i = startBin; i < endBin; i++) {
                 let x = ((i - startBin) / displayBins) * sWidth;
-                if (dataArray[i] > peakHoldArray[i]) peakHoldArray[i] = dataArray[i];
-                else peakHoldArray[i] -= 0.2; 
+                if (displayArray[i] > peakHoldArray[i]) peakHoldArray[i] = displayArray[i];
+                else peakHoldArray[i] -= 0.3; // Decay
+                
                 let pDb = peakHoldArray[i];
                 if (pDb < minDb) pDb = minDb; if (pDb > maxDb) pDb = maxDb;
                 let y = sHeight - ((pDb - minDb) / (maxDb - minDb) * sHeight);
@@ -530,13 +629,13 @@
             }
             specCtx.stroke();
 
-            // Real-time
+            // Real-time Path
             specCtx.beginPath();
-            specCtx.strokeStyle = '#38bdf8';
+            specCtx.strokeStyle = doSubtraction ? '#2dd4bf' : '#38bdf8'; // Teal if denoised, Sky blue if raw
             specCtx.lineWidth = 1.5;
             for (let i = startBin; i < endBin; i++) {
                 let x = ((i - startBin) / displayBins) * sWidth;
-                let db = dataArray[i];
+                let db = displayArray[i];
                 if (db < minDb) db = minDb; if (db > maxDb) db = maxDb;
                 let y = sHeight - ((db - minDb) / (maxDb - minDb) * sHeight);
                 if (i === startBin) specCtx.moveTo(x, y); else specCtx.lineTo(x, y);
@@ -547,35 +646,65 @@
             waterCtx.drawImage(waterCanvas, 0, 0, wWidth, wHeight - 1, 0, 1, wWidth, wHeight - 1);
             for (let x = 0; x < wWidth; x++) {
                 let bin = startBin + Math.floor((x / wWidth) * displayBins);
-                let db = dataArray[bin];
+                let db = displayArray[bin];
                 waterCtx.fillStyle = dbToColor(db);
                 waterCtx.fillRect(x, 0, 1, 1);
             }
 
-            // 3. PEAK UI
-            const peaks = findProminentPeaks(dataArray, hzPerBin, startBin, endBin);
+            // 3. PEAK UI & HARMONIC CORRELATOR VISUALS
+            const peaks = findProminentPeaks(displayArray, hzPerBin, startBin, endBin);
             const topPeaks = peaks.slice(0, 4);
+
+            let fundamentalX = null;
+            let fundamentalY = null;
 
             topPeaks.forEach((peak, idx) => {
                 let x = ((peak.bin - startBin) / displayBins) * sWidth;
-                specCtx.beginPath();
-                specCtx.strokeStyle = idx === 0 ? 'rgba(244, 63, 94, 0.6)' : 'rgba(167, 139, 250, 0.5)';
-                specCtx.setLineDash([2, 2]);
-                specCtx.moveTo(x, 0); specCtx.lineTo(x, sHeight);
-                specCtx.stroke(); specCtx.setLineDash([]);
-                
                 let db = peak.db;
                 if (db < minDb) db = minDb; if (db > maxDb) db = maxDb;
                 let y = sHeight - ((db - minDb) / (maxDb - minDb) * sHeight);
 
+                // Styling logic based on harmonic analysis
+                let color = '#a855f7'; // Default Violet
+                if (idx === 0) {
+                    color = '#f43f5e'; // Fundamental Red
+                    fundamentalX = x;
+                    fundamentalY = y;
+                } else if (peak.isHarmonic) {
+                    color = '#fbbf24'; // Harmonic Amber
+                    
+                    // Draw correlation curve to fundamental
+                    if (fundamentalX !== null) {
+                        specCtx.beginPath();
+                        specCtx.strokeStyle = 'rgba(251, 191, 36, 0.4)';
+                        specCtx.setLineDash([2, 4]);
+                        specCtx.moveTo(fundamentalX, fundamentalY);
+                        // Quadratic curve hooking downwards slightly
+                        specCtx.quadraticCurveTo((fundamentalX + x) / 2, Math.min(sHeight, Math.max(fundamentalY, y) + 50), x, y);
+                        specCtx.stroke();
+                        specCtx.setLineDash([]);
+                    }
+                }
+
+                // Vertical Marker
+                specCtx.beginPath();
+                specCtx.strokeStyle = color;
+                specCtx.globalAlpha = 0.5;
+                specCtx.moveTo(x, 0); specCtx.lineTo(x, sHeight);
+                specCtx.stroke();
+                specCtx.globalAlpha = 1.0;
+                
+                // Peak Dot
                 specCtx.beginPath();
                 specCtx.arc(x, y, 3, 0, Math.PI * 2);
-                specCtx.fillStyle = idx === 0 ? '#f43f5e' : '#a855f7';
+                specCtx.fillStyle = color;
                 specCtx.fill();
             });
 
+            // Update Left Panel List
             if (topPeaks.length === 0) {
-                noResultsMsg.textContent = "Scanning... No anomalies found.";
+                if (isCapturingNoise) noResultsMsg.textContent = "Profiling noise... hold steady.";
+                else noResultsMsg.textContent = "Scanning... No anomalies found.";
                 noResultsMsg.classList.remove('hidden');
                 for(let i=0; i<4; i++) document.getElementById(`slot-${i}`).classList.add('hidden');
             } else {
@@ -586,10 +715,27 @@
                         const peak = topPeaks[i];
                         document.getElementById(`freq-${i}`).textContent = peak.freq.toFixed(1);
                         document.getElementById(`vol-${i}`).textContent = peak.db.toFixed(1);
-                        document.getElementById(`prom-${i}`).textContent = peak.prominence.toFixed(1);
+                        
+                        const promLabel = document.getElementById(`prom-label-${i}`);
+                        if (i === 0) {
+                            slot.className = "bg-slate-800/50 rounded p-2 flex justify-between items-center border border-rose-500/50";
+                            promLabel.textContent = `FUNDAMENTAL`;
+                            promLabel.className = "text-[9px] text-rose-400 font-bold";
+                        } else if (peak.isHarmonic) {
+                            slot.className = "bg-slate-800/50 rounded p-2 flex justify-between items-center border border-amber-500/50";
+                            promLabel.textContent = `HARMONIC (x${peak.harmonicOf})`;
+                            promLabel.className = "text-[9px] text-amber-400 font-bold";
+                        } else {
+                            slot.className = "bg-slate-800/50 rounded p-2 flex justify-between items-center border border-slate-700";
+                            promLabel.textContent = `+${peak.prominence.toFixed(1)} prom`;
+                            promLabel.className = "text-[9px] text-violet-400 font-mono";
+                        }
+                        
                         slot.classList.remove('hidden');
+                        slot.classList.add('flex');
                     } else {
                         slot.classList.add('hidden');
+                        slot.classList.remove('flex');
                     }
                 }
             }
