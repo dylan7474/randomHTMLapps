@@ -675,33 +675,69 @@
             if (history3D.length > MAX_HISTORY) history3D.pop();
 
             // Draw 3D Mesh (Back to Front)
-            waterCtx.lineWidth = 1;
-            const zOffset = 3; // pixels to shift right per history step
-            const yOffset = 2; // pixels to shift up per history step
-            const baseScale = 0.9; // Scale down slightly to fit
+            const paddingBottom = 10;
+            const usableH = wH - paddingBottom;
+            
+            // Push the depth almost all the way to the top of the window to remove the dark void
+            const totalZHeight = usableH * 0.85; 
+            const amplitudeHeight = usableH * 0.50;
+            
+            const yOffset = totalZHeight / MAX_HISTORY;
+            const zOffset = 3; // Restore 3D isometric skew
+            const baseScale = 1.0; 
 
             for(let h = history3D.length - 1; h >= 0; h--) {
                 let data = history3D[h];
-                waterCtx.beginPath();
+                if (data.length === 0) continue;
                 
-                // Fade out older data
-                let alpha = 1 - (h / MAX_HISTORY);
-                waterCtx.strokeStyle = `rgba(6, 182, 212, ${alpha})`;
+                let pts = [];
+                let floorY = wH - paddingBottom - (h * yOffset);
                 
-                // If it's the very front line, make it magenta and thick
-                if (h === 0) { waterCtx.strokeStyle = '#ec4899'; waterCtx.lineWidth = 2; }
+                // Anchor the extreme left to x=0 to fill the skew gap
+                pts.push({x: 0, y: floorY});
 
                 for(let i=0; i<data.length; i++) {
-                    // Map 0-length to 0-width
-                    let baseX = (i / data.length) * (wW * baseScale);
+                    let isoX = (i / Math.max(1, data.length - 1)) * (wW * baseScale);
                     let db = data[i];
-                    let baseY = wH - ((db - minDb) / (maxDb - minDb) * wH * 0.8);
+                    if (db < minDb) db = minDb;
+                    if (db > maxDb) db = maxDb;
+                    
+                    let baseY = wH - paddingBottom - ((db - minDb) / (maxDb - minDb) * amplitudeHeight);
+                    let isoY = baseY - (h * yOffset);
+                    
+                    isoX += (h * zOffset); // Apply skew
+                    pts.push({x: isoX, y: isoY});
+                }
+                
+                // Anchor extreme right to ensure it bleeds off the edge
+                pts.push({x: wW + h * zOffset + 10, y: floorY});
 
-                    // Apply Isometric skew based on history index 'h'
-                    let isoX = baseX + (h * zOffset);
-                    let isoY = baseY - (h * yOffset) + (MAX_HISTORY * yOffset * 0.5); // Center vertically
+                // 1. Solid Fill to hide older lines and create solid terrain
+                waterCtx.beginPath();
+                waterCtx.moveTo(pts[0].x, pts[0].y);
+                for(let i=1; i<pts.length; i++) waterCtx.lineTo(pts[i].x, pts[i].y);
+                
+                // Fill straight down past the bottom of the canvas (using extended X bounds)
+                waterCtx.lineTo(wW + 100, wH + 10);
+                waterCtx.lineTo(-100, wH + 10);
+                waterCtx.closePath();
+                waterCtx.fillStyle = '#010409'; // Match canvas background
+                waterCtx.fill();
 
-                    if (i === 0) waterCtx.moveTo(isoX, isoY); else waterCtx.lineTo(isoX, isoY);
+                // 2. Stroke the top edge
+                waterCtx.beginPath();
+                waterCtx.moveTo(pts[0].x, pts[0].y);
+                for(let i=1; i<pts.length; i++) waterCtx.lineTo(pts[i].x, pts[i].y);
+                
+                let depthFactor = h / MAX_HISTORY;
+                if (h === 0) { 
+                    waterCtx.strokeStyle = '#ec4899'; // Front line magenta
+                    waterCtx.lineWidth = 2; 
+                } else {
+                    // Darken the lines into the distance instead of fading transparency
+                    let lightness = 45 - (depthFactor * 35); // 45% -> 10% lightness
+                    waterCtx.strokeStyle = `hsla(188, 97%, ${lightness}%, 1.0)`;
+                    waterCtx.lineWidth = 1.5;
                 }
                 waterCtx.stroke();
             }
