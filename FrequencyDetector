@@ -3,220 +3,215 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hidden Frequency Detector Pro</title>
+    <title>Frequency Hunter Pro - Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background-color: #0f172a; color: #f8fafc; font-family: ui-sans-serif, system-ui, sans-serif; }
-        canvas { filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.1)); }
+        body { background-color: #020617; color: #f8fafc; font-family: ui-sans-serif, system-ui, sans-serif; overscroll-behavior: none; }
+        canvas { filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.15)); }
         
-        /* Custom range slider styling */
-        input[type=range] {
-            -webkit-appearance: none;
-            width: 100%;
-            background: transparent;
-        }
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 14px;
-            width: 14px;
-            border-radius: 50%;
-            background: #38bdf8;
-            cursor: pointer;
-            margin-top: -5px;
-        }
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%;
-            height: 4px;
-            cursor: pointer;
-            background: #334155;
-            border-radius: 2px;
-        }
-        /* Custom scrollbar for results */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #1e293b; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        /* Dense range slider styling */
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 12px; width: 12px; border-radius: 50%; background: #38bdf8; cursor: pointer; margin-top: -4px; border: 2px solid #0f172a; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #334155; border-radius: 2px; }
+        
+        /* Custom minimal scrollbar */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        /* Reticle overlay */
+        .reticle-line { position: absolute; background-color: rgba(56, 189, 248, 0.5); pointer-events: none; z-index: 10; display: none; }
+        #reticle-x { width: 1px; top: 0; bottom: 0; }
+        #reticle-label { position: absolute; background: #0f172a; border: 1px solid #38bdf8; color: #38bdf8; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 10px; pointer-events: none; z-index: 20; display: none; white-space: nowrap; transform: translateX(-50%) translateY(-100%); margin-top: -8px;}
     </style>
 </head>
-<body class="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8">
+<body class="h-screen w-full overflow-hidden flex flex-col p-2 text-sm select-none">
 
-    <div class="w-full max-w-7xl space-y-6">
-        <!-- Header & Controls -->
-        <div class="bg-slate-800 rounded-2xl p-6 shadow-xl border border-slate-700 flex flex-col md:flex-row items-center justify-between gap-6">
-            <div>
-                <h1 class="text-2xl font-bold bg-gradient-to-r from-sky-400 to-violet-400 bg-clip-text text-transparent flex items-center gap-3">
-                    <svg class="w-6 h-6 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-                    Frequency Hunter Pro
-                </h1>
-                <p class="text-slate-400 text-sm mt-1">Targeted FFT analysis with Spectrogram and Peak Hold tracking.</p>
-            </div>
-            
-            <div class="flex items-center gap-4 w-full md:w-auto justify-between">
-                <button id="toggleBtn" class="flex items-center gap-2 px-6 py-3 bg-sky-500 hover:bg-sky-400 text-white rounded-lg font-semibold transition-all shadow-lg shadow-sky-500/20 w-full md:w-auto justify-center">
-                    <svg id="micIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
-                    </svg>
-                    <span id="btnText">Initialize Scanner</span>
-                </button>
-            </div>
+    <!-- Top Navigation Bar -->
+    <header class="flex-none h-14 bg-slate-900 border border-slate-800 rounded-lg px-4 flex items-center justify-between shadow-md mb-2">
+        <div class="flex items-center gap-3">
+            <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+            <h1 class="text-lg font-bold bg-gradient-to-r from-sky-400 to-violet-400 bg-clip-text text-transparent tracking-wide uppercase">
+                FreqHunter Pro
+            </h1>
+            <span class="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">v2.0 Dashboard</span>
         </div>
+        
+        <div class="flex items-center gap-3">
+            <button id="freezeBtn" class="hidden items-center gap-2 px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 rounded-md font-medium transition-colors text-xs">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span id="freezeText">Freeze Display</span>
+            </button>
 
-        <!-- Main Workspace -->
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <button id="toggleBtn" class="flex items-center gap-2 px-5 py-1.5 bg-sky-500 hover:bg-sky-400 text-white rounded-md font-semibold transition-all shadow-lg shadow-sky-500/20 text-xs">
+                <svg id="micIcon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                </svg>
+                <span id="btnText">INIT SCANNER</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Dashboard Area -->
+    <main class="flex-1 flex gap-2 min-h-0">
+        
+        <!-- Left Sidebar (Controls & Data) -->
+        <aside class="w-72 flex-none flex flex-col gap-2 overflow-y-auto pr-1">
             
-            <!-- Canvas Visualizers -->
-            <div class="lg:col-span-3 space-y-4 flex flex-col h-[600px]">
-                
-                <!-- Spectrum Canvas (Top) -->
-                <div class="bg-slate-800 rounded-2xl p-4 shadow-xl border border-slate-700 relative flex-1 flex flex-col">
-                    <div class="flex justify-between items-center mb-2 text-xs text-slate-400 px-2 font-mono">
-                        <span id="minViewLabel">0 Hz</span>
-                        <span class="text-slate-500">REAL-TIME SPECTRUM & PEAK HOLD</span>
-                        <span id="maxViewLabel">22050 Hz</span>
-                    </div>
-                    <div id="spectrumContainer" class="flex-1 w-full relative">
-                        <canvas id="spectrumCanvas" class="absolute inset-0 w-full h-full rounded-lg bg-slate-900"></canvas>
-                    </div>
-                </div>
-
-                <!-- Spectrogram Canvas (Bottom) -->
-                <div class="bg-slate-800 rounded-2xl p-4 shadow-xl border border-slate-700 relative flex-1 flex flex-col">
-                    <div class="flex justify-between items-center mb-2 text-xs text-slate-400 px-2 font-mono">
-                        <span>NOW &darr;</span>
-                        <span class="text-slate-500">WATERFALL HISTORY</span>
-                        <span>PAST &uarr;</span>
-                    </div>
-                    <div id="spectrogramContainer" class="flex-1 w-full relative overflow-hidden rounded-lg bg-slate-900">
-                        <canvas id="spectrogramCanvas" class="absolute inset-0 w-full h-full"></canvas>
-                    </div>
-                </div>
-
-                <!-- Error Overlay -->
-                <div id="errorOverlay" class="fixed inset-0 bg-slate-900/90 flex flex-col items-center justify-center hidden z-50 backdrop-blur-sm">
-                    <svg class="w-16 h-16 text-rose-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                    <p id="errorText" class="text-rose-200 text-lg text-center px-4 max-w-md">Microphone access denied or unavailable.</p>
-                    <button onclick="document.getElementById('errorOverlay').classList.add('hidden')" class="mt-6 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300">Dismiss</button>
-                </div>
-            </div>
-
-            <!-- Side Panel: Settings & Results -->
-            <div class="flex flex-col gap-4 h-[600px]">
-                
-                <!-- Target Window (Zoom) -->
-                <div class="bg-slate-800 rounded-2xl p-5 shadow-xl border border-slate-700 space-y-4">
-                    <h2 class="text-xs font-bold tracking-wider text-slate-300 uppercase flex items-center gap-2">
-                        <svg class="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                        Target Frequency Band
-                    </h2>
-                    
+            <!-- Target Window -->
+            <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-none">
+                <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-3 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-violet-500"></span> Zoom Window
+                </h2>
+                <div class="space-y-3">
                     <div>
-                        <div class="flex justify-between text-xs text-slate-400 mb-1 font-mono">
-                            <label>Min (Hz)</label>
-                            <span id="minFreqDisplay">0</span>
+                        <div class="flex justify-between text-[10px] text-slate-500 mb-1 font-mono">
+                            <span>MIN</span><span id="minFreqDisplay" class="text-slate-300">0 Hz</span>
                         </div>
                         <input type="range" id="minFreqSlider" min="0" max="22000" value="0" step="100">
                     </div>
-
                     <div>
-                        <div class="flex justify-between text-xs text-slate-400 mb-1 font-mono">
-                            <label>Max (Hz)</label>
-                            <span id="maxFreqDisplay">22050</span>
+                        <div class="flex justify-between text-[10px] text-slate-500 mb-1 font-mono">
+                            <span>MAX</span><span id="maxFreqDisplay" class="text-slate-300">22050 Hz</span>
                         </div>
                         <input type="range" id="maxFreqSlider" min="100" max="24000" value="22050" step="100">
                     </div>
-                    <p class="text-[10px] text-slate-500 leading-tight">Narrows the analysis window. Frequencies outside this range are ignored.</p>
                 </div>
+            </div>
 
-                <!-- Detection Settings -->
-                <div class="bg-slate-800 rounded-2xl p-5 shadow-xl border border-slate-700 space-y-4">
-                    <h2 class="text-xs font-bold tracking-wider text-slate-300 uppercase flex items-center gap-2">
-                        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
-                        Algorithm Sensitivity
-                    </h2>
-                    
+            <!-- Algorithm Sensitivity -->
+            <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-none">
+                <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-3 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Sensitivity
+                </h2>
+                <div class="space-y-3">
                     <div>
-                        <div class="flex justify-between text-xs text-slate-400 mb-1 font-mono">
-                            <label>Prominence</label>
-                            <span id="promLabel">15 dB</span>
+                        <div class="flex justify-between text-[10px] text-slate-500 mb-1 font-mono">
+                            <span>PROMINENCE</span><span id="promLabel" class="text-slate-300">15 dB</span>
                         </div>
                         <input type="range" id="prominenceSlider" min="5" max="40" value="15">
                     </div>
-
                     <div>
-                        <div class="flex justify-between text-xs text-slate-400 mb-1 font-mono">
-                            <label>Noise Floor</label>
-                            <span id="threshLabel">-75 dB</span>
+                        <div class="flex justify-between text-[10px] text-slate-500 mb-1 font-mono">
+                            <span>NOISE FLOOR</span><span id="threshLabel" class="text-slate-300">-75 dB</span>
                         </div>
                         <input type="range" id="thresholdSlider" min="-100" max="-30" value="-75">
                     </div>
                 </div>
+            </div>
 
-                <!-- Detected Tones -->
-                <div class="bg-slate-800 rounded-2xl p-5 shadow-xl border border-slate-700 flex-1 flex flex-col min-h-0">
-                    <h2 class="text-xs font-bold tracking-wider text-slate-300 uppercase mb-3 flex items-center gap-2">
-                        <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                        Anomalies Found
-                    </h2>
-                    <div id="resultsList" class="space-y-2 flex-1 overflow-y-auto pr-1">
-                        <div id="noResultsMsg" class="text-slate-500 text-sm italic text-center mt-6">
-                            Awaiting audio signal...
-                        </div>
-                        
-                        <!-- Pre-rendered slots -->
-                        <div id="slot-0" class="hidden bg-slate-700/40 rounded-lg p-2.5 flex justify-between items-center border border-slate-600/30 hover:border-sky-500/50 transition-colors">
-                            <div class="flex items-center gap-2">
-                                <span class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
-                                <span class="text-base font-mono font-bold text-sky-300"><span id="freq-0"></span> <span class="text-[10px] text-sky-500/70">Hz</span></span>
-                            </div>
-                            <div class="text-right flex flex-col">
-                                <span class="text-[11px] text-slate-300 font-mono"><span id="vol-0"></span> dB</span>
-                                <span class="text-[9px] text-violet-400 font-mono">+<span id="prom-0"></span> prom</span>
-                            </div>
-                        </div>
+            <!-- Cursor Info (New) -->
+            <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-none">
+                <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-2 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-sky-500"></span> Cursor Telemetry
+                </h2>
+                <div class="grid grid-cols-2 gap-2 bg-slate-950 p-2 rounded border border-slate-800/50 font-mono">
+                    <div class="flex flex-col">
+                        <span class="text-[9px] text-slate-500">FREQUENCY</span>
+                        <span id="cursorFreq" class="text-sky-300 text-sm">-- Hz</span>
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-[9px] text-slate-500">CURRENT VOL</span>
+                        <span id="cursorVol" class="text-slate-300 text-sm">-- dB</span>
+                    </div>
+                </div>
+            </div>
 
-                        <div id="slot-1" class="hidden bg-slate-700/40 rounded-lg p-2.5 flex justify-between items-center border border-slate-600/30">
-                            <div class="flex items-center gap-2">
-                                <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                                <span class="text-base font-mono font-bold text-sky-300"><span id="freq-1"></span> <span class="text-[10px] text-sky-500/70">Hz</span></span>
-                            </div>
-                            <div class="text-right flex flex-col">
-                                <span class="text-[11px] text-slate-300 font-mono"><span id="vol-1"></span> dB</span>
-                                <span class="text-[9px] text-violet-400 font-mono">+<span id="prom-1"></span> prom</span>
-                            </div>
+            <!-- Detected Anomalies List -->
+            <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-1 flex flex-col min-h-0">
+                <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-3 flex items-center gap-2 flex-none">
+                    <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> Strong Tones
+                </h2>
+                
+                <div id="resultsList" class="space-y-1.5 flex-1 overflow-y-auto pr-1">
+                    <div id="noResultsMsg" class="text-slate-500 text-xs italic text-center mt-4">
+                        Awaiting signal...
+                    </div>
+                    
+                    <!-- Pre-rendered slots (denser format) -->
+                    <div id="slot-0" class="hidden bg-slate-800/50 rounded p-2 flex justify-between items-center border border-rose-500/30">
+                        <span class="text-sm font-mono font-bold text-sky-300"><span id="freq-0"></span><span class="text-[9px] text-sky-500/70 ml-1">Hz</span></span>
+                        <div class="text-right flex flex-col">
+                            <span class="text-[10px] text-slate-300 font-mono"><span id="vol-0"></span> dB</span>
+                            <span class="text-[9px] text-violet-400 font-mono">+<span id="prom-0"></span> prom</span>
                         </div>
+                    </div>
 
-                        <div id="slot-2" class="hidden bg-slate-700/40 rounded-lg p-2.5 flex justify-between items-center border border-slate-600/30">
-                            <div class="flex items-center gap-2">
-                                <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-                                <span class="text-base font-mono font-bold text-sky-300"><span id="freq-2"></span> <span class="text-[10px] text-sky-500/70">Hz</span></span>
-                            </div>
-                            <div class="text-right flex flex-col">
-                                <span class="text-[11px] text-slate-300 font-mono"><span id="vol-2"></span> dB</span>
-                                <span class="text-[9px] text-violet-400 font-mono">+<span id="prom-2"></span> prom</span>
-                            </div>
+                    <div id="slot-1" class="hidden bg-slate-800/50 rounded p-2 flex justify-between items-center border border-slate-700">
+                        <span class="text-sm font-mono font-bold text-sky-300"><span id="freq-1"></span><span class="text-[9px] text-sky-500/70 ml-1">Hz</span></span>
+                        <div class="text-right flex flex-col">
+                            <span class="text-[10px] text-slate-300 font-mono"><span id="vol-1"></span> dB</span>
+                            <span class="text-[9px] text-violet-400 font-mono">+<span id="prom-1"></span> prom</span>
                         </div>
+                    </div>
 
-                        <div id="slot-3" class="hidden bg-slate-700/40 rounded-lg p-2.5 flex justify-between items-center border border-slate-600/30">
-                            <div class="flex items-center gap-2">
-                                <span class="w-1.5 h-1.5 rounded-full bg-slate-600"></span>
-                                <span class="text-base font-mono font-bold text-sky-300"><span id="freq-3"></span> <span class="text-[10px] text-sky-500/70">Hz</span></span>
-                            </div>
-                            <div class="text-right flex flex-col">
-                                <span class="text-[11px] text-slate-300 font-mono"><span id="vol-3"></span> dB</span>
-                                <span class="text-[9px] text-violet-400 font-mono">+<span id="prom-3"></span> prom</span>
-                            </div>
+                    <div id="slot-2" class="hidden bg-slate-800/50 rounded p-2 flex justify-between items-center border border-slate-700">
+                        <span class="text-sm font-mono font-bold text-sky-300"><span id="freq-2"></span><span class="text-[9px] text-sky-500/70 ml-1">Hz</span></span>
+                        <div class="text-right flex flex-col">
+                            <span class="text-[10px] text-slate-300 font-mono"><span id="vol-2"></span> dB</span>
+                            <span class="text-[9px] text-violet-400 font-mono">+<span id="prom-2"></span> prom</span>
+                        </div>
+                    </div>
+
+                    <div id="slot-3" class="hidden bg-slate-800/50 rounded p-2 flex justify-between items-center border border-slate-700">
+                        <span class="text-sm font-mono font-bold text-sky-300"><span id="freq-3"></span><span class="text-[9px] text-sky-500/70 ml-1">Hz</span></span>
+                        <div class="text-right flex flex-col">
+                            <span class="text-[10px] text-slate-300 font-mono"><span id="vol-3"></span> dB</span>
+                            <span class="text-[9px] text-violet-400 font-mono">+<span id="prom-3"></span> prom</span>
                         </div>
                     </div>
                 </div>
-
             </div>
-        </div>
-    </div>
+        </aside>
+
+        <!-- Right Visualizers -->
+        <section class="flex-1 flex flex-col gap-2 min-w-0 relative group" id="visualizerGroup">
+            
+            <!-- Global Reticle overlay -->
+            <div id="reticle-x" class="reticle-line"></div>
+            <div id="reticle-label"></div>
+
+            <!-- Spectrum Canvas (Top - 35% height) -->
+            <div class="bg-slate-900 rounded-lg p-2 border border-slate-800 relative flex-none h-[35%] flex flex-col">
+                <div class="flex justify-between items-center mb-1 text-[9px] text-slate-500 font-mono px-1">
+                    <span id="minViewLabel">0 Hz</span>
+                    <span>SPECTRUM & PEAK HOLD</span>
+                    <span id="maxViewLabel">22050 Hz</span>
+                </div>
+                <div id="spectrumContainer" class="flex-1 w-full relative rounded overflow-hidden">
+                    <canvas id="spectrumCanvas" class="absolute inset-0 w-full h-full bg-[#020617]"></canvas>
+                </div>
+            </div>
+
+            <!-- Spectrogram Canvas (Bottom - 65% height) -->
+            <div class="bg-slate-900 rounded-lg p-2 border border-slate-800 relative flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center mb-1 text-[9px] text-slate-500 font-mono px-1">
+                    <span>NOW &darr;</span>
+                    <span>WATERFALL HISTORY</span>
+                    <span>PAST &uarr;</span>
+                </div>
+                <div id="spectrogramContainer" class="flex-1 w-full relative overflow-hidden rounded">
+                    <canvas id="spectrogramCanvas" class="absolute inset-0 w-full h-full bg-[#020617]"></canvas>
+                </div>
+            </div>
+
+            <!-- Error Overlay -->
+            <div id="errorOverlay" class="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center hidden z-50 backdrop-blur-sm rounded-lg border border-slate-800">
+                <svg class="w-12 h-12 text-rose-500 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                <p id="errorText" class="text-slate-300 text-sm text-center px-4">Microphone access denied.</p>
+                <button onclick="document.getElementById('errorOverlay').classList.add('hidden')" class="mt-4 px-4 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs text-slate-300">Dismiss</button>
+            </div>
+        </section>
+    </main>
 
     <script>
         // DOM Elements
         const toggleBtn = document.getElementById('toggleBtn');
         const btnText = document.getElementById('btnText');
         const micIcon = document.getElementById('micIcon');
+        const freezeBtn = document.getElementById('freezeBtn');
+        const freezeText = document.getElementById('freezeText');
         
         const specCanvas = document.getElementById('spectrumCanvas');
         const specCtx = specCanvas.getContext('2d');
@@ -225,6 +220,7 @@
         const waterCanvas = document.getElementById('spectrogramCanvas');
         const waterCtx = waterCanvas.getContext('2d', { alpha: false });
         const waterContainer = document.getElementById('spectrogramContainer');
+        const visualizerGroup = document.getElementById('visualizerGroup');
 
         const minViewLabel = document.getElementById('minViewLabel');
         const maxViewLabel = document.getElementById('maxViewLabel');
@@ -232,6 +228,12 @@
         const errorOverlay = document.getElementById('errorOverlay');
         const errorText = document.getElementById('errorText');
         
+        // Reticle / Cursor info
+        const reticleX = document.getElementById('reticle-x');
+        const reticleLabel = document.getElementById('reticle-label');
+        const cursorFreq = document.getElementById('cursorFreq');
+        const cursorVol = document.getElementById('cursorVol');
+
         // Settings Elements
         const prominenceSlider = document.getElementById('prominenceSlider');
         const promLabel = document.getElementById('promLabel');
@@ -248,29 +250,73 @@
         let stream = null;
         let animationId = null;
         let isRunning = false;
+        let isFrozen = false;
         let dataArray = null;
-        let peakHoldArray = null; // Stores history for peak hold
+        let peakHoldArray = null; 
 
         // Settings State
         let currentProminence = parseInt(prominenceSlider.value);
         let currentThreshold = parseInt(thresholdSlider.value);
         let minFreqTarget = parseInt(minFreqSlider.value);
         let maxFreqTarget = parseInt(maxFreqSlider.value);
-        let maxPossibleFreq = 22050; // Will update once context starts
+        let maxPossibleFreq = 22050; 
 
-        // Resize Canvases dynamically
+        // Resize Canvases dynamically to fill dashboard
         function resizeCanvas() {
             specCanvas.width = specContainer.clientWidth;
             specCanvas.height = specContainer.clientHeight;
             
-            // For spectrogram, if we resize, we clear history to avoid stretching artifacts
+            // For spectrogram, clear history on resize to avoid artifacting
             waterCanvas.width = waterContainer.clientWidth;
             waterCanvas.height = waterContainer.clientHeight;
-            waterCtx.fillStyle = '#0f172a';
+            waterCtx.fillStyle = '#020617';
             waterCtx.fillRect(0, 0, waterCanvas.width, waterCanvas.height);
         }
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
+
+        // Reticle Logic
+        visualizerGroup.addEventListener('mousemove', (e) => {
+            if (!isRunning) return;
+            const rect = visualizerGroup.getBoundingClientRect();
+            let x = e.clientX - rect.left;
+            
+            // Clamp X to visualizer bounds
+            x = Math.max(0, Math.min(x, rect.width));
+
+            reticleX.style.display = 'block';
+            reticleLabel.style.display = 'block';
+            reticleX.style.left = `${x}px`;
+            
+            // Calculate Frequency at X
+            const freq = minFreqTarget + (x / rect.width) * (maxFreqTarget - minFreqTarget);
+            
+            // Update Tooltip
+            reticleLabel.style.left = `${e.clientX}px`;
+            reticleLabel.style.top = `${e.clientY}px`;
+            reticleLabel.textContent = `${freq.toFixed(0)} Hz`;
+
+            // Update Side Panel
+            cursorFreq.textContent = `${freq.toFixed(1)} Hz`;
+
+            // Find current volume if not frozen
+            if(dataArray && !isFrozen) {
+                const hzPerBin = audioCtx.sampleRate / analyser.fftSize;
+                const bin = Math.floor(freq / hzPerBin);
+                if(bin >= 0 && bin < dataArray.length) {
+                    let vol = dataArray[bin];
+                    cursorVol.textContent = vol > -150 ? `${vol.toFixed(1)} dB` : '<-150 dB';
+                }
+            }
+        });
+
+        visualizerGroup.addEventListener('mouseleave', () => {
+            reticleX.style.display = 'none';
+            reticleLabel.style.display = 'none';
+            cursorFreq.textContent = '-- Hz';
+            if(!isFrozen) cursorVol.textContent = '-- dB';
+        });
+
 
         // Event Listeners for UI
         prominenceSlider.addEventListener('input', (e) => {
@@ -295,21 +341,33 @@
                 maxFreqSlider.value = maxFreqTarget;
             }
             
-            minFreqDisplay.textContent = minFreqTarget;
-            maxFreqDisplay.textContent = maxFreqTarget;
+            minFreqDisplay.textContent = minFreqTarget + ' Hz';
+            maxFreqDisplay.textContent = maxFreqTarget + ' Hz';
             minViewLabel.textContent = `${minFreqTarget} Hz`;
             maxViewLabel.textContent = `${maxFreqTarget} Hz`;
 
-            // Reset peak hold when changing view bounds
             if (peakHoldArray) peakHoldArray.fill(-150);
             
-            // Clear waterfall on zoom
-            waterCtx.fillStyle = '#0f172a';
+            waterCtx.fillStyle = '#020617';
             waterCtx.fillRect(0, 0, waterCanvas.width, waterCanvas.height);
         }
 
         minFreqSlider.addEventListener('input', enforceFreqBounds);
         maxFreqSlider.addEventListener('input', enforceFreqBounds);
+
+        // Freeze Logic
+        freezeBtn.addEventListener('click', () => {
+            isFrozen = !isFrozen;
+            if (isFrozen) {
+                freezeBtn.classList.replace('bg-slate-800', 'bg-violet-600');
+                freezeBtn.classList.replace('text-slate-300', 'text-white');
+                freezeText.textContent = "Unfreeze";
+            } else {
+                freezeBtn.classList.replace('bg-violet-600', 'bg-slate-800');
+                freezeBtn.classList.replace('text-white', 'text-slate-300');
+                freezeText.textContent = "Freeze Display";
+            }
+        });
 
         // Initialize Audio
         async function startAudio() {
@@ -321,10 +379,8 @@
                 
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 analyser = audioCtx.createAnalyser();
-                
-                // 16384 FFT size provides immense resolution (~2.9Hz bins)
-                analyser.fftSize = 16384; 
-                analyser.smoothingTimeConstant = 0.4; // Less smoothing to catch transients
+                analyser.fftSize = 16384; // High res
+                analyser.smoothingTimeConstant = 0.3; // Very low smoothing for fast waterfall
                 
                 const source = audioCtx.createMediaStreamSource(stream);
                 source.connect(analyser);
@@ -340,12 +396,20 @@
                 }
 
                 isRunning = true;
+                isFrozen = false;
+                
+                freezeBtn.classList.replace('bg-violet-600', 'bg-slate-800');
+                freezeBtn.classList.replace('text-white', 'text-slate-300');
+                freezeText.textContent = "Freeze Display";
+                freezeBtn.classList.remove('hidden');
+                freezeBtn.classList.add('flex');
+
                 updateUIRunning();
                 draw();
 
             } catch (err) {
                 console.error("Microphone error:", err);
-                errorText.textContent = "Microphone access denied or not found. Check system permissions.";
+                errorText.textContent = "Microphone access denied or not found.";
                 errorOverlay.classList.remove('hidden');
                 stopAudio();
             }
@@ -354,102 +418,74 @@
         function stopAudio() {
             isRunning = false;
             updateUIStopped();
+            freezeBtn.classList.add('hidden');
+            freezeBtn.classList.remove('flex');
             
             if (animationId) cancelAnimationFrame(animationId);
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-            }
-            if (audioCtx) {
-                audioCtx.close();
-                audioCtx = null;
-            }
+            if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
+            if (audioCtx) { audioCtx.close(); audioCtx = null; }
             
             specCtx.clearRect(0, 0, specCanvas.width, specCanvas.height);
             noResultsMsg.textContent = "Scanner inactive.";
             noResultsMsg.classList.remove('hidden');
-            for(let i=0; i<4; i++) {
-                document.getElementById(`slot-${i}`).classList.add('hidden');
-            }
+            for(let i=0; i<4; i++) document.getElementById(`slot-${i}`).classList.add('hidden');
         }
 
         function updateUIRunning() {
-            btnText.textContent = "Stop Scanner";
+            btnText.textContent = "STOP SCANNER";
             toggleBtn.classList.remove('bg-sky-500', 'hover:bg-sky-400', 'shadow-sky-500/20');
             toggleBtn.classList.add('bg-rose-500', 'hover:bg-rose-400', 'shadow-rose-500/20');
             micIcon.innerHTML = `<rect x="6" y="6" width="12" height="12" rx="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/>`;
         }
 
         function updateUIStopped() {
-            btnText.textContent = "Initialize Scanner";
+            btnText.textContent = "INIT SCANNER";
             toggleBtn.classList.remove('bg-rose-500', 'hover:bg-rose-400', 'shadow-rose-500/20');
             toggleBtn.classList.add('bg-sky-500', 'hover:bg-sky-400', 'shadow-sky-500/20');
             micIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>`;
         }
 
         toggleBtn.addEventListener('click', () => {
-            if (isRunning) stopAudio();
-            else startAudio();
+            if (isRunning) stopAudio(); else startAudio();
         });
 
-        // Heatmap color function for Spectrogram
-        // Maps dB value to HSL (Dark Blue -> Cyan -> Green -> Yellow -> Red)
+        // HSL mapping
         function dbToColor(db) {
             let p = (db - currentThreshold) / (-30 - currentThreshold);
-            p = Math.max(0, Math.min(1, p)); // Clamp 0 to 1
-            
-            if (p < 0.05) return '#0f172a'; // Background noise floor
-            
-            // HSL generation: 240 is blue, 0 is red
+            p = Math.max(0, Math.min(1, p));
+            if (p < 0.05) return '#020617'; 
             const h = (1.0 - p) * 240; 
-            const l = Math.max(15, p * 60); // Keep it dark unless strong
+            const l = Math.max(10, p * 60); 
             return `hsl(${h}, 100%, ${l}%)`;
         }
 
-        // The core detection algorithm (Windowed)
         function findProminentPeaks(data, hzPerBin, startBin, endBin) {
             let peaks = [];
-            const windowSize = 25; // Search window for local average noise
-
+            const windowSize = 25; 
             for (let i = startBin + 2; i < endBin - windowSize; i++) {
                 let val = data[i];
-                
-                // 1. Local Maximum check & Hard Threshold check
                 if (val > data[i-1] && val > data[i+1] && val > currentThreshold) {
-                    
-                    // 2. Calculate Prominence above immediate local noise floor
-                    let localSum = 0;
-                    let count = 0;
-                    
-                    for(let j = Math.max(startBin, i - windowSize); j < i - 2; j++) {
-                        localSum += data[j]; count++;
-                    }
-                    for(let j = i + 3; j < Math.min(endBin, i + windowSize); j++) {
-                        localSum += data[j]; count++;
-                    }
-                    
+                    let localSum = 0; let count = 0;
+                    for(let j = Math.max(startBin, i - windowSize); j < i - 2; j++) { localSum += data[j]; count++; }
+                    for(let j = i + 3; j < Math.min(endBin, i + windowSize); j++) { localSum += data[j]; count++; }
                     let localAvg = count > 0 ? (localSum / count) : -120;
                     let prominence = val - localAvg;
-
                     if (prominence >= currentProminence) {
-                        peaks.push({
-                            bin: i,
-                            freq: i * hzPerBin,
-                            db: val,
-                            prominence: prominence
-                        });
+                        peaks.push({ bin: i, freq: i * hzPerBin, db: val, prominence: prominence });
                     }
                 }
             }
-            // Sort by prominence (purest tones first)
             peaks.sort((a, b) => b.prominence - a.prominence);
             return peaks;
         }
 
-        // Main Animation & Analysis Loop
+        // Main Draw Loop
         function draw() {
             if (!isRunning) return;
             animationId = requestAnimationFrame(draw);
+
+            // Skip drawing and data collection if frozen
+            if (isFrozen) return;
 
             analyser.getFloatFrequencyData(dataArray);
 
@@ -460,84 +496,55 @@
             const binCount = analyser.frequencyBinCount;
             const hzPerBin = audioCtx.sampleRate / analyser.fftSize;
 
-            // Calculate bins for target zoom window
             let startBin = Math.max(0, Math.floor(minFreqTarget / hzPerBin));
             let endBin = Math.min(binCount, Math.ceil(maxFreqTarget / hzPerBin));
             let displayBins = endBin - startBin;
             if(displayBins <= 0) displayBins = 1;
 
-            // ==========================================
-            // 1. DRAW SPECTRUM (TOP CANVAS)
-            // ==========================================
+            // 1. SPECTRUM
             specCtx.clearRect(0, 0, sWidth, sHeight);
 
-            // Draw Grid
-            specCtx.strokeStyle = 'rgba(51, 65, 85, 0.4)';
+            // Grid
+            specCtx.strokeStyle = 'rgba(30, 41, 59, 0.5)';
             specCtx.lineWidth = 1;
             specCtx.beginPath();
-            for(let i = 1; i < 10; i++) {
-                let x = (sWidth / 10) * i;
-                specCtx.moveTo(x, 0); specCtx.lineTo(x, sHeight);
-            }
-            for(let i = 1; i < 5; i++) {
-                let y = (sHeight / 5) * i;
-                specCtx.moveTo(0, y); specCtx.lineTo(sWidth, y);
-            }
+            for(let i = 1; i < 10; i++) { let x = (sWidth / 10) * i; specCtx.moveTo(x, 0); specCtx.lineTo(x, sHeight); }
+            for(let i = 1; i < 5; i++) { let y = (sHeight / 5) * i; specCtx.moveTo(0, y); specCtx.lineTo(sWidth, y); }
             specCtx.stroke();
 
-            const minDb = currentThreshold - 10; // Dynamic visual floor
+            const minDb = currentThreshold - 10;
             const maxDb = -30;
             
-            // Path for Peak Hold
+            // Peak Hold
             specCtx.beginPath();
-            specCtx.strokeStyle = 'rgba(56, 189, 248, 0.2)'; // Faint sky blue
+            specCtx.strokeStyle = 'rgba(56, 189, 248, 0.2)';
             specCtx.lineWidth = 2;
-            
             for (let i = startBin; i < endBin; i++) {
                 let x = ((i - startBin) / displayBins) * sWidth;
-                
-                // Update and draw Peak Hold
-                if (dataArray[i] > peakHoldArray[i]) {
-                    peakHoldArray[i] = dataArray[i]; // Immediate jump up
-                } else {
-                    peakHoldArray[i] -= 0.15; // Slow decay down
-                }
-
+                if (dataArray[i] > peakHoldArray[i]) peakHoldArray[i] = dataArray[i];
+                else peakHoldArray[i] -= 0.2; 
                 let pDb = peakHoldArray[i];
-                if (pDb < minDb) pDb = minDb;
-                if (pDb > maxDb) pDb = maxDb;
+                if (pDb < minDb) pDb = minDb; if (pDb > maxDb) pDb = maxDb;
                 let y = sHeight - ((pDb - minDb) / (maxDb - minDb) * sHeight);
-
-                if (i === startBin) specCtx.moveTo(x, y);
-                else specCtx.lineTo(x, y);
+                if (i === startBin) specCtx.moveTo(x, y); else specCtx.lineTo(x, y);
             }
             specCtx.stroke();
 
-            // Path for Real-time Spectrum
+            // Real-time
             specCtx.beginPath();
-            specCtx.strokeStyle = '#38bdf8'; // Sky blue
+            specCtx.strokeStyle = '#38bdf8';
             specCtx.lineWidth = 1.5;
-            
             for (let i = startBin; i < endBin; i++) {
                 let x = ((i - startBin) / displayBins) * sWidth;
                 let db = dataArray[i];
-                if (db < minDb) db = minDb;
-                if (db > maxDb) db = maxDb;
+                if (db < minDb) db = minDb; if (db > maxDb) db = maxDb;
                 let y = sHeight - ((db - minDb) / (maxDb - minDb) * sHeight);
-
-                if (i === startBin) specCtx.moveTo(x, y);
-                else specCtx.lineTo(x, y);
+                if (i === startBin) specCtx.moveTo(x, y); else specCtx.lineTo(x, y);
             }
             specCtx.stroke();
 
-            // ==========================================
-            // 2. DRAW SPECTROGRAM (BOTTOM CANVAS)
-            // ==========================================
-            
-            // Shift existing image down by 1 pixel
+            // 2. SPECTROGRAM
             waterCtx.drawImage(waterCanvas, 0, 0, wWidth, wHeight - 1, 0, 1, wWidth, wHeight - 1);
-            
-            // Draw new row at top
             for (let x = 0; x < wWidth; x++) {
                 let bin = startBin + Math.floor((x / wWidth) * displayBins);
                 let db = dataArray[bin];
@@ -545,46 +552,30 @@
                 waterCtx.fillRect(x, 0, 1, 1);
             }
 
-            // ==========================================
-            // 3. PEAK DETECTION & UI
-            // ==========================================
+            // 3. PEAK UI
             const peaks = findProminentPeaks(dataArray, hzPerBin, startBin, endBin);
             const topPeaks = peaks.slice(0, 4);
 
-            // Draw Peak Markers on Spectrum
             topPeaks.forEach((peak, idx) => {
                 let x = ((peak.bin - startBin) / displayBins) * sWidth;
-                
-                // Vertical guide line
                 specCtx.beginPath();
                 specCtx.strokeStyle = idx === 0 ? 'rgba(244, 63, 94, 0.6)' : 'rgba(167, 139, 250, 0.5)';
-                specCtx.setLineDash([4, 4]);
-                specCtx.moveTo(x, 0);
-                specCtx.lineTo(x, sHeight);
-                specCtx.stroke();
-                specCtx.setLineDash([]);
+                specCtx.setLineDash([2, 2]);
+                specCtx.moveTo(x, 0); specCtx.lineTo(x, sHeight);
+                specCtx.stroke(); specCtx.setLineDash([]);
                 
-                // Dot
                 let db = peak.db;
-                if (db < minDb) db = minDb;
-                if (db > maxDb) db = maxDb;
+                if (db < minDb) db = minDb; if (db > maxDb) db = maxDb;
                 let y = sHeight - ((db - minDb) / (maxDb - minDb) * sHeight);
 
                 specCtx.beginPath();
-                specCtx.arc(x, y, 4, 0, Math.PI * 2);
+                specCtx.arc(x, y, 3, 0, Math.PI * 2);
                 specCtx.fillStyle = idx === 0 ? '#f43f5e' : '#a855f7';
                 specCtx.fill();
-                
-                // Text
-                specCtx.fillStyle = '#f8fafc';
-                specCtx.font = "bold 10px monospace";
-                specCtx.textAlign = "center";
-                specCtx.fillText(Math.round(peak.freq) + "Hz", x, y - 10);
             });
 
-            // Update DOM UI safely
             if (topPeaks.length === 0) {
-                noResultsMsg.textContent = "Monitoring target band. No strong anomalies.";
+                noResultsMsg.textContent = "Scanning... No anomalies found.";
                 noResultsMsg.classList.remove('hidden');
                 for(let i=0; i<4; i++) document.getElementById(`slot-${i}`).classList.add('hidden');
             } else {
