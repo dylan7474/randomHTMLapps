@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hidden Frequency Detector</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: ui-sans-serif, system-ui, sans-serif; }
+        canvas { filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.2)); }
+        
+        /* Custom range slider styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            margin-top: -6px;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #334155;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8">
+
+    <div class="w-full max-w-5xl space-y-6">
+        <!-- Header & Controls -->
+        <div class="bg-slate-800 rounded-2xl p-6 shadow-xl border border-slate-700 flex flex-col md:flex-row items-center justify-between gap-6">
+            <div>
+                <h1 class="text-2xl font-bold bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">
+                    Hidden Frequency Detector
+                </h1>
+                <p class="text-slate-400 text-sm mt-1">Real-time FFT analysis looking for prominent sine waves.</p>
+            </div>
+            
+            <div class="flex items-center gap-4 w-full md:w-auto justify-between">
+                <button id="toggleBtn" class="flex items-center gap-2 px-6 py-3 bg-sky-500 hover:bg-sky-400 text-white rounded-lg font-semibold transition-all shadow-lg shadow-sky-500/20 w-full md:w-auto justify-center">
+                    <svg id="micIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                    </svg>
+                    <span id="btnText">Start Microphone</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Workspace -->
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            
+            <!-- Canvas Visualizer -->
+            <div class="lg:col-span-3 bg-slate-800 rounded-2xl p-4 shadow-xl border border-slate-700 relative h-[400px] flex flex-col">
+                <div class="flex justify-between items-center mb-2 text-xs text-slate-400 px-2 font-mono">
+                    <span>0 Hz</span>
+                    <span id="maxFreqLabel">22050 Hz</span>
+                </div>
+                <div id="canvasContainer" class="flex-1 w-full relative">
+                    <canvas id="spectrumCanvas" class="absolute inset-0 w-full h-full rounded-lg bg-slate-900"></canvas>
+                </div>
+                <!-- Error Overlay -->
+                <div id="errorOverlay" class="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center rounded-2xl hidden z-10 backdrop-blur-sm">
+                    <svg class="w-12 h-12 text-red-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    <p id="errorText" class="text-red-200 text-center px-4">Microphone access denied or unavailable.</p>
+                </div>
+            </div>
+
+            <!-- Side Panel: Settings & Results -->
+            <div class="flex flex-col gap-6">
+                
+                <!-- Settings -->
+                <div class="bg-slate-800 rounded-2xl p-5 shadow-xl border border-slate-700 space-y-5">
+                    <h2 class="text-sm font-bold tracking-wider text-slate-300 uppercase">Detection Settings</h2>
+                    
+                    <div>
+                        <div class="flex justify-between text-xs text-slate-400 mb-1">
+                            <label>Prominence Threshold</label>
+                            <span id="promLabel">15 dB</span>
+                        </div>
+                        <input type="range" id="prominenceSlider" min="5" max="40" value="15">
+                        <p class="text-[10px] text-slate-500 mt-1 leading-tight">How sharp the spike needs to be compared to surrounding noise.</p>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-xs text-slate-400 mb-1">
+                            <label>Absolute Threshold</label>
+                            <span id="threshLabel">-70 dB</span>
+                        </div>
+                        <input type="range" id="thresholdSlider" min="-100" max="-30" value="-70">
+                        <p class="text-[10px] text-slate-500 mt-1 leading-tight">Ignore all sounds quieter than this.</p>
+                    </div>
+                </div>
+
+                <!-- Detected Tones -->
+                <div class="bg-slate-800 rounded-2xl p-5 shadow-xl border border-slate-700 flex-1 flex flex-col">
+                    <h2 class="text-sm font-bold tracking-wider text-slate-300 uppercase mb-3">Strong Tones</h2>
+                    <div id="resultsList" class="space-y-2 flex-1 overflow-y-auto">
+                        <div id="noResultsMsg" class="text-slate-500 text-sm italic text-center mt-8">
+                            Waiting for audio...
+                        </div>
+                        
+                        <!-- Pre-rendered slots to prevent DOM thrashing crashes -->
+                        <div id="slot-0" class="hidden bg-slate-700/50 rounded-lg p-3 flex justify-between items-center border border-slate-600/50">
+                            <div class="flex items-center gap-3">
+                                <span class="flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-xs font-bold">1</span>
+                                <span class="text-lg font-mono font-bold text-sky-300"><span id="freq-0"></span> <span class="text-xs text-sky-500/70">Hz</span></span>
+                            </div>
+                            <div class="text-right flex flex-col">
+                                <span class="text-xs text-slate-400 font-mono">Vol: <span id="vol-0"></span> dB</span>
+                                <span class="text-[10px] text-violet-400 font-mono">Prominence: +<span id="prom-0"></span></span>
+                            </div>
+                        </div>
+
+                        <div id="slot-1" class="hidden bg-slate-700/50 rounded-lg p-3 flex justify-between items-center border border-slate-600/50">
+                            <div class="flex items-center gap-3">
+                                <span class="flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-xs font-bold">2</span>
+                                <span class="text-lg font-mono font-bold text-sky-300"><span id="freq-1"></span> <span class="text-xs text-sky-500/70">Hz</span></span>
+                            </div>
+                            <div class="text-right flex flex-col">
+                                <span class="text-xs text-slate-400 font-mono">Vol: <span id="vol-1"></span> dB</span>
+                                <span class="text-[10px] text-violet-400 font-mono">Prominence: +<span id="prom-1"></span></span>
+                            </div>
+                        </div>
+
+                        <div id="slot-2" class="hidden bg-slate-700/50 rounded-lg p-3 flex justify-between items-center border border-slate-600/50">
+                            <div class="flex items-center gap-3">
+                                <span class="flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-xs font-bold">3</span>
+                                <span class="text-lg font-mono font-bold text-sky-300"><span id="freq-2"></span> <span class="text-xs text-sky-500/70">Hz</span></span>
+                            </div>
+                            <div class="text-right flex flex-col">
+                                <span class="text-xs text-slate-400 font-mono">Vol: <span id="vol-2"></span> dB</span>
+                                <span class="text-[10px] text-violet-400 font-mono">Prominence: +<span id="prom-2"></span></span>
+                            </div>
+                        </div>
+
+                        <div id="slot-3" class="hidden bg-slate-700/50 rounded-lg p-3 flex justify-between items-center border border-slate-600/50">
+                            <div class="flex items-center gap-3">
+                                <span class="flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-xs font-bold">4</span>
+                                <span class="text-lg font-mono font-bold text-sky-300"><span id="freq-3"></span> <span class="text-xs text-sky-500/70">Hz</span></span>
+                            </div>
+                            <div class="text-right flex flex-col">
+                                <span class="text-xs text-slate-400 font-mono">Vol: <span id="vol-3"></span> dB</span>
+                                <span class="text-[10px] text-violet-400 font-mono">Prominence: +<span id="prom-3"></span></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const toggleBtn = document.getElementById('toggleBtn');
+        const btnText = document.getElementById('btnText');
+        const micIcon = document.getElementById('micIcon');
+        const canvas = document.getElementById('spectrumCanvas');
+        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('canvasContainer');
+        const maxFreqLabel = document.getElementById('maxFreqLabel');
+        const resultsList = document.getElementById('resultsList');
+        const noResultsMsg = document.getElementById('noResultsMsg');
+        const errorOverlay = document.getElementById('errorOverlay');
+        const errorText = document.getElementById('errorText');
+        
+        // Settings Elements
+        const prominenceSlider = document.getElementById('prominenceSlider');
+        const promLabel = document.getElementById('promLabel');
+        const thresholdSlider = document.getElementById('thresholdSlider');
+        const threshLabel = document.getElementById('threshLabel');
+
+        // Audio State
+        let audioCtx = null;
+        let analyser = null;
+        let stream = null;
+        let animationId = null;
+        let isRunning = false;
+        let dataArray = null;
+
+        // Settings State
+        let currentProminence = parseInt(prominenceSlider.value);
+        let currentThreshold = parseInt(thresholdSlider.value);
+
+        // Resize Canvas dynamically
+        function resizeCanvas() {
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Update settings labels
+        prominenceSlider.addEventListener('input', (e) => {
+            currentProminence = parseInt(e.target.value);
+            promLabel.textContent = `${currentProminence} dB`;
+        });
+        thresholdSlider.addEventListener('input', (e) => {
+            currentThreshold = parseInt(e.target.value);
+            threshLabel.textContent = `${currentThreshold} dB`;
+        });
+
+        // Initialize Audio
+        async function startAudio() {
+            try {
+                errorOverlay.classList.add('hidden');
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false 
+                    } 
+                });
+                
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioCtx.createAnalyser();
+                
+                // High FFT size for better frequency resolution
+                // 16384 FFT size at 48kHz sample rate = ~2.9 Hz per bin
+                analyser.fftSize = 16384; 
+                analyser.smoothingTimeConstant = 0.5; // Slight smoothing
+                
+                const source = audioCtx.createMediaStreamSource(stream);
+                source.connect(analyser);
+
+                dataArray = new Float32Array(analyser.frequencyBinCount);
+                
+                maxFreqLabel.textContent = `${Math.round(audioCtx.sampleRate / 2)} Hz`;
+
+                isRunning = true;
+                updateUIRunning();
+                draw();
+
+            } catch (err) {
+                console.error("Microphone error:", err);
+                errorText.textContent = "Microphone access denied or unavailable. Please check permissions.";
+                errorOverlay.classList.remove('hidden');
+                stopAudio();
+            }
+        }
+
+        function stopAudio() {
+            isRunning = false;
+            updateUIStopped();
+            
+            if (animationId) cancelAnimationFrame(animationId);
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            if (audioCtx) {
+                audioCtx.close();
+                audioCtx = null;
+            }
+            
+            // Clear canvas and hide slots
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            noResultsMsg.textContent = "Analysis stopped.";
+            noResultsMsg.classList.remove('hidden');
+            for(let i=0; i<4; i++) {
+                document.getElementById(`slot-${i}`).classList.add('hidden');
+            }
+        }
+
+        function updateUIRunning() {
+            btnText.textContent = "Stop Microphone";
+            toggleBtn.classList.remove('bg-sky-500', 'hover:bg-sky-400', 'shadow-sky-500/20');
+            toggleBtn.classList.add('bg-rose-500', 'hover:bg-rose-400', 'shadow-rose-500/20');
+            micIcon.innerHTML = `<rect x="6" y="6" width="12" height="12" rx="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/>`;
+        }
+
+        function updateUIStopped() {
+            btnText.textContent = "Start Microphone";
+            toggleBtn.classList.remove('bg-rose-500', 'hover:bg-rose-400', 'shadow-rose-500/20');
+            toggleBtn.classList.add('bg-sky-500', 'hover:bg-sky-400', 'shadow-sky-500/20');
+            micIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>`;
+        }
+
+        toggleBtn.addEventListener('click', () => {
+            if (isRunning) stopAudio();
+            else startAudio();
+        });
+
+        // The core detection algorithm
+        function findProminentPeaks(data, sampleRate, fftSize) {
+            const hzPerBin = sampleRate / fftSize;
+            let peaks = [];
+            
+            // Skip the first few bins (e.g., < 80Hz) to ignore DC offset and extreme low rumble
+            const startBin = Math.floor(80 / hzPerBin);
+            const windowSize = 20; // Number of bins to check around a peak for average noise floor
+
+            for (let i = startBin; i < data.length - windowSize; i++) {
+                let val = data[i];
+                
+                // 1. Is it a local maximum? (Higher than immediate neighbors)
+                if (val > data[i-1] && val > data[i+1] && val > currentThreshold) {
+                    
+                    // 2. Calculate "Prominence" (how high above local average)
+                    let localSum = 0;
+                    let count = 0;
+                    
+                    // Sample area below peak
+                    for(let j = Math.max(0, i - windowSize); j < i - 2; j++) {
+                        localSum += data[j]; count++;
+                    }
+                    // Sample area above peak
+                    for(let j = i + 3; j < Math.min(data.length, i + windowSize); j++) {
+                        localSum += data[j]; count++;
+                    }
+                    
+                    let localAvg = count > 0 ? (localSum / count) : -120;
+                    let prominence = val - localAvg;
+
+                    if (prominence >= currentProminence) {
+                        peaks.push({
+                            bin: i,
+                            freq: i * hzPerBin,
+                            db: val,
+                            prominence: prominence
+                        });
+                    }
+                }
+            }
+
+            // Sort by absolute highest peak first or highest prominence. 
+            // We'll sort by prominence to find the most "pure" tones.
+            peaks.sort((a, b) => b.prominence - a.prominence);
+            return peaks;
+        }
+
+        // Main Animation & Analysis Loop
+        function draw() {
+            if (!isRunning) return;
+            animationId = requestAnimationFrame(draw);
+
+            analyser.getFloatFrequencyData(dataArray);
+
+            const width = canvas.width;
+            const height = canvas.height;
+            const binCount = analyser.frequencyBinCount;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+
+            // Draw Background Grid Lines
+            ctx.strokeStyle = 'rgba(51, 65, 85, 0.5)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for(let i = 1; i < 10; i++) {
+                let x = (width / 10) * i;
+                ctx.moveTo(x, 0); ctx.lineTo(x, height);
+            }
+            for(let i = 1; i < 5; i++) {
+                let y = (height / 5) * i;
+                ctx.moveTo(0, y); ctx.lineTo(width, y);
+            }
+            ctx.stroke();
+
+            // Draw Spectrum Line
+            ctx.beginPath();
+            ctx.strokeStyle = '#38bdf8'; // Sky blue
+            ctx.lineWidth = 2;
+
+            // Define min/max DB to map to canvas height
+            const minDb = -100;
+            const maxDb = -30;
+            
+            for (let i = 0; i < binCount; i++) {
+                let x = (i / binCount) * width;
+                
+                // Map db to Y coordinate (0 at top, height at bottom)
+                let db = dataArray[i];
+                // Clamp for visual purposes
+                if (db < minDb) db = minDb;
+                if (db > maxDb) db = maxDb;
+                
+                let percent = (db - minDb) / (maxDb - minDb);
+                let y = height - (percent * height);
+
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Detect Peaks
+            const peaks = findProminentPeaks(dataArray, audioCtx.sampleRate, analyser.fftSize);
+            const topPeaks = peaks.slice(0, 4); // Show top 4
+
+            // Draw peak markers on canvas
+            topPeaks.forEach(peak => {
+                let x = (peak.bin / binCount) * width;
+                
+                // Draw vertical line marker
+                ctx.beginPath();
+                ctx.strokeStyle = 'rgba(167, 139, 250, 0.6)'; // Violet
+                ctx.setLineDash([5, 5]);
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+                ctx.setLineDash([]); // Reset
+                
+                // Draw dot
+                let db = peak.db;
+                if (db < minDb) db = minDb;
+                if (db > maxDb) db = maxDb;
+                let percent = (db - minDb) / (maxDb - minDb);
+                let y = height - (percent * height);
+
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#a855f7';
+                ctx.fill();
+                
+                // Draw text above peak
+                ctx.fillStyle = '#f8fafc';
+                ctx.font = "10px monospace";
+                ctx.textAlign = "center";
+                ctx.fillText(Math.round(peak.freq) + "Hz", x, y - 10);
+            });
+
+            // Update DOM with results safely (no innerHTML)
+            if (topPeaks.length === 0) {
+                noResultsMsg.textContent = "No strong tones detected matching criteria.";
+                noResultsMsg.classList.remove('hidden');
+                for(let i=0; i<4; i++) {
+                    document.getElementById(`slot-${i}`).classList.add('hidden');
+                }
+            } else {
+                noResultsMsg.classList.add('hidden');
+                for(let i=0; i<4; i++) {
+                    const slot = document.getElementById(`slot-${i}`);
+                    if (i < topPeaks.length) {
+                        const peak = topPeaks[i];
+                        document.getElementById(`freq-${i}`).textContent = peak.freq.toFixed(1);
+                        document.getElementById(`vol-${i}`).textContent = peak.db.toFixed(1);
+                        document.getElementById(`prom-${i}`).textContent = peak.prominence.toFixed(1);
+                        slot.classList.remove('hidden');
+                    } else {
+                        slot.classList.add('hidden');
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>
