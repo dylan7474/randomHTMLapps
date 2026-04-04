@@ -156,6 +156,17 @@
                 </div>
             </div>
 
+            <!-- Waterfall Telemetry -->
+            <div>
+                <h3 class="text-[10px] tracking-widest text-slate-500 uppercase font-tech mb-3">Waterfall Telemetry</h3>
+                <div>
+                    <div class="flex justify-between text-[11px] text-cyan-300/70 font-tech mb-1">
+                        <span>RENDER_SPEED</span><span id="speedDisplay">MAX</span>
+                    </div>
+                    <input type="range" id="waterfallSpeedSlider" min="1" max="10" value="10">
+                </div>
+            </div>
+
             <!-- Sensitivity -->
             <div>
                 <h3 class="text-[10px] tracking-widest text-slate-500 uppercase font-tech mb-3">Algorithm Sensitivity</h3>
@@ -367,6 +378,8 @@
         // Settings Elements
         const minFreqSlider = document.getElementById('minFreqSlider');
         const maxFreqSlider = document.getElementById('maxFreqSlider');
+        const waterfallSpeedSlider = document.getElementById('waterfallSpeedSlider');
+        const speedDisplay = document.getElementById('speedDisplay');
         const prominenceSlider = document.getElementById('prominenceSlider');
         const thresholdSlider = document.getElementById('thresholdSlider');
         const profileNoiseBtn = document.getElementById('profileNoiseBtn');
@@ -392,6 +405,10 @@
         let history3D = [];
         let renderStep = 4; // Downsample bins for faster 3D render
 
+        // Waterfall Delay
+        let waterfallDelay = 0;
+        let waterfallFrameCounter = 0;
+
         // DSP State
         let noiseProfileArray = null; 
         let isCapturingNoise = false;
@@ -404,6 +421,7 @@
         let minFreqTarget = parseInt(minFreqSlider.value);
         let maxFreqTarget = parseInt(maxFreqSlider.value);
         let maxPossibleFreq = 22050; 
+        waterfallDelay = 10 - parseInt(waterfallSpeedSlider.value);
 
         // Initialization
         function resizeCanvas() {
@@ -501,6 +519,15 @@
         // Settings Listeners
         prominenceSlider.addEventListener('input', (e) => { currentProminence = parseInt(e.target.value); document.getElementById('promLabel').textContent = currentProminence; });
         thresholdSlider.addEventListener('input', (e) => { currentThreshold = parseInt(e.target.value); document.getElementById('threshLabel').textContent = currentThreshold; });
+        
+        waterfallSpeedSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            waterfallDelay = 10 - val;
+            if (val === 10) speedDisplay.textContent = "MAX";
+            else if (val === 1) speedDisplay.textContent = "MIN";
+            else speedDisplay.textContent = val + "/10";
+        });
+
         function enforceFreqBounds() {
             minFreqTarget = parseInt(minFreqSlider.value);
             maxFreqTarget = parseInt(maxFreqSlider.value);
@@ -662,84 +689,90 @@
             // ==========================================
             // RENDER 3D ISOMETRIC SPECTROGRAM
             // ==========================================
-            const wW = waterCanvas.width; const wH = waterCanvas.height;
-            waterCtx.clearRect(0, 0, wW, wH);
-
-            // Create downsampled slice for 3D history
-            let slice = new Float32Array(Math.ceil(displayBins / renderStep));
-            let sliceIdx = 0;
-            for(let i = startBin; i < endBin; i += renderStep) {
-                slice[sliceIdx++] = Math.max(minDb, Math.min(maxDb, displayArray[i]));
-            }
-            history3D.unshift(slice);
-            if (history3D.length > MAX_HISTORY) history3D.pop();
-
-            // Draw 3D Mesh (Back to Front)
-            const paddingBottom = 10;
-            const usableH = wH - paddingBottom;
-            
-            // Push the depth almost all the way to the top of the window to remove the dark void
-            const totalZHeight = usableH * 0.85; 
-            const amplitudeHeight = usableH * 0.50;
-            
-            const yOffset = totalZHeight / MAX_HISTORY;
-            const zOffset = 3; // Restore 3D isometric skew
-            const baseScale = 1.0; 
-
-            for(let h = history3D.length - 1; h >= 0; h--) {
-                let data = history3D[h];
-                if (data.length === 0) continue;
+            if (waterfallFrameCounter >= waterfallDelay) {
+                waterfallFrameCounter = 0;
                 
-                let pts = [];
-                let floorY = wH - paddingBottom - (h * yOffset);
-                
-                // Anchor the extreme left to x=0 to fill the skew gap
-                pts.push({x: 0, y: floorY});
+                const wW = waterCanvas.width; const wH = waterCanvas.height;
+                waterCtx.clearRect(0, 0, wW, wH);
 
-                for(let i=0; i<data.length; i++) {
-                    let isoX = (i / Math.max(1, data.length - 1)) * (wW * baseScale);
-                    let db = data[i];
-                    if (db < minDb) db = minDb;
-                    if (db > maxDb) db = maxDb;
-                    
-                    let baseY = wH - paddingBottom - ((db - minDb) / (maxDb - minDb) * amplitudeHeight);
-                    let isoY = baseY - (h * yOffset);
-                    
-                    isoX += (h * zOffset); // Apply skew
-                    pts.push({x: isoX, y: isoY});
+                // Create downsampled slice for 3D history
+                let slice = new Float32Array(Math.ceil(displayBins / renderStep));
+                let sliceIdx = 0;
+                for(let i = startBin; i < endBin; i += renderStep) {
+                    slice[sliceIdx++] = Math.max(minDb, Math.min(maxDb, displayArray[i]));
                 }
-                
-                // Anchor extreme right to ensure it bleeds off the edge
-                pts.push({x: wW + h * zOffset + 10, y: floorY});
+                history3D.unshift(slice);
+                if (history3D.length > MAX_HISTORY) history3D.pop();
 
-                // 1. Solid Fill to hide older lines and create solid terrain
-                waterCtx.beginPath();
-                waterCtx.moveTo(pts[0].x, pts[0].y);
-                for(let i=1; i<pts.length; i++) waterCtx.lineTo(pts[i].x, pts[i].y);
+                // Draw 3D Mesh (Back to Front)
+                const paddingBottom = 10;
+                const usableH = wH - paddingBottom;
                 
-                // Fill straight down past the bottom of the canvas (using extended X bounds)
-                waterCtx.lineTo(wW + 100, wH + 10);
-                waterCtx.lineTo(-100, wH + 10);
-                waterCtx.closePath();
-                waterCtx.fillStyle = '#010409'; // Match canvas background
-                waterCtx.fill();
+                // Push the depth almost all the way to the top of the window to remove the dark void
+                const totalZHeight = usableH * 0.85; 
+                const amplitudeHeight = usableH * 0.50;
+                
+                const yOffset = totalZHeight / MAX_HISTORY;
+                const zOffset = 3; // Restore 3D isometric skew
+                const baseScale = 1.0; 
 
-                // 2. Stroke the top edge
-                waterCtx.beginPath();
-                waterCtx.moveTo(pts[0].x, pts[0].y);
-                for(let i=1; i<pts.length; i++) waterCtx.lineTo(pts[i].x, pts[i].y);
-                
-                let depthFactor = h / MAX_HISTORY;
-                if (h === 0) { 
-                    waterCtx.strokeStyle = '#ec4899'; // Front line magenta
-                    waterCtx.lineWidth = 2; 
-                } else {
-                    // Darken the lines into the distance instead of fading transparency
-                    let lightness = 45 - (depthFactor * 35); // 45% -> 10% lightness
-                    waterCtx.strokeStyle = `hsla(188, 97%, ${lightness}%, 1.0)`;
-                    waterCtx.lineWidth = 1.5;
+                for(let h = history3D.length - 1; h >= 0; h--) {
+                    let data = history3D[h];
+                    if (data.length === 0) continue;
+                    
+                    let pts = [];
+                    let floorY = wH - paddingBottom - (h * yOffset);
+                    
+                    // Anchor the extreme left to x=0 to fill the skew gap
+                    pts.push({x: 0, y: floorY});
+
+                    for(let i=0; i<data.length; i++) {
+                        let isoX = (i / Math.max(1, data.length - 1)) * (wW * baseScale);
+                        let db = data[i];
+                        if (db < minDb) db = minDb;
+                        if (db > maxDb) db = maxDb;
+                        
+                        let baseY = wH - paddingBottom - ((db - minDb) / (maxDb - minDb) * amplitudeHeight);
+                        let isoY = baseY - (h * yOffset);
+                        
+                        isoX += (h * zOffset); // Apply skew
+                        pts.push({x: isoX, y: isoY});
+                    }
+                    
+                    // Anchor extreme right to ensure it bleeds off the edge
+                    pts.push({x: wW + h * zOffset + 10, y: floorY});
+
+                    // 1. Solid Fill to hide older lines and create solid terrain
+                    waterCtx.beginPath();
+                    waterCtx.moveTo(pts[0].x, pts[0].y);
+                    for(let i=1; i<pts.length; i++) waterCtx.lineTo(pts[i].x, pts[i].y);
+                    
+                    // Fill straight down past the bottom of the canvas (using extended X bounds)
+                    waterCtx.lineTo(wW + 100, wH + 10);
+                    waterCtx.lineTo(-100, wH + 10);
+                    waterCtx.closePath();
+                    waterCtx.fillStyle = '#010409'; // Match canvas background
+                    waterCtx.fill();
+
+                    // 2. Stroke the top edge
+                    waterCtx.beginPath();
+                    waterCtx.moveTo(pts[0].x, pts[0].y);
+                    for(let i=1; i<pts.length; i++) waterCtx.lineTo(pts[i].x, pts[i].y);
+                    
+                    let depthFactor = h / MAX_HISTORY;
+                    if (h === 0) { 
+                        waterCtx.strokeStyle = '#ec4899'; // Front line magenta
+                        waterCtx.lineWidth = 2; 
+                    } else {
+                        // Darken the lines into the distance instead of fading transparency
+                        let lightness = 45 - (depthFactor * 35); // 45% -> 10% lightness
+                        waterCtx.strokeStyle = `hsla(188, 97%, ${lightness}%, 1.0)`;
+                        waterCtx.lineWidth = 1.5;
+                    }
+                    waterCtx.stroke();
                 }
-                waterCtx.stroke();
+            } else {
+                waterfallFrameCounter++;
             }
 
             // ==========================================
