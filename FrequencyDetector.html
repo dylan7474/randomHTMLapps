@@ -32,7 +32,7 @@
 <body class="h-screen w-full overflow-hidden flex flex-col p-2 text-sm select-none">
 
     <!-- Top Navigation Bar -->
-    <header class="flex-none h-14 bg-slate-900 border border-slate-800 rounded-lg px-4 flex items-center justify-between shadow-md mb-2">
+    <header class="flex-none h-14 bg-slate-900 border border-slate-800 rounded-lg px-4 flex items-center justify-between shadow-md mb-2 relative z-50">
         <div class="flex items-center gap-3">
             <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
             <h1 class="text-lg font-bold bg-gradient-to-r from-sky-400 to-violet-400 bg-clip-text text-transparent tracking-wide uppercase">
@@ -42,6 +42,11 @@
         </div>
         
         <div class="flex items-center gap-3">
+            <button id="settingsBtn" class="flex items-center gap-2 px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 rounded-md font-medium transition-colors text-xs">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                <span>Controls Panel</span>
+            </button>
+
             <button id="freezeBtn" class="hidden items-center gap-2 px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 rounded-md font-medium transition-colors text-xs">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 <span id="freezeText">Freeze Display</span>
@@ -57,13 +62,20 @@
     </header>
 
     <!-- Main Dashboard Area -->
-    <main class="flex-1 flex gap-2 min-h-0">
+    <main class="flex-1 relative flex min-h-0">
         
-        <!-- Left Sidebar (Controls & Data) -->
-        <aside class="w-72 flex-none flex flex-col gap-2 overflow-y-auto pr-1">
+        <!-- Overlay Settings Panel (Pop Out) -->
+        <aside id="settingsPanel" class="absolute left-0 top-0 bottom-0 z-40 w-80 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-lg p-3 flex flex-col gap-3 overflow-y-auto transform -translate-x-[120%] transition-transform duration-300 shadow-2xl">
             
+            <div class="flex items-center justify-between flex-none pb-1">
+                <h2 class="text-[13px] font-bold tracking-widest text-slate-300 uppercase">Control Panel</h2>
+                <button id="closeSettingsBtn" class="text-slate-400 hover:text-white transition-colors p-1 bg-slate-800 hover:bg-rose-500 rounded">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
             <!-- Target Window -->
-            <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-none">
+            <div class="bg-slate-950/50 rounded-lg p-4 border border-slate-800 flex-none">
                 <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-3 flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-violet-500"></span> Zoom Window
                 </h2>
@@ -84,7 +96,7 @@
             </div>
 
             <!-- Display Settings -->
-            <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-none">
+            <div class="bg-slate-950/50 rounded-lg p-4 border border-slate-800 flex-none">
                 <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-3 flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-cyan-500"></span> Display Settings
                 </h2>
@@ -99,7 +111,7 @@
             </div>
 
             <!-- Algorithm Sensitivity -->
-            <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-none">
+            <div class="bg-slate-950/50 rounded-lg p-4 border border-slate-800 flex-none">
                 <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-3 flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Sensitivity
                 </h2>
@@ -120,7 +132,7 @@
             </div>
 
             <!-- Advanced DSP (NEW) -->
-            <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-none">
+            <div class="bg-slate-950/50 rounded-lg p-4 border border-slate-800 flex-none">
                 <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-3 flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-pink-500"></span> Advanced DSP
                 </h2>
@@ -137,11 +149,11 @@
             </div>
 
             <!-- Cursor Info -->
-            <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-none">
+            <div class="bg-slate-950/50 rounded-lg p-4 border border-slate-800 flex-none">
                 <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-2 flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-sky-500"></span> Cursor Telemetry
                 </h2>
-                <div class="grid grid-cols-2 gap-2 bg-slate-950 p-2 rounded border border-slate-800/50 font-mono">
+                <div class="grid grid-cols-2 gap-2 bg-slate-900 p-2 rounded border border-slate-800/50 font-mono">
                     <div class="flex flex-col">
                         <span class="text-[9px] text-slate-500">FREQUENCY</span>
                         <span id="cursorFreq" class="text-sky-300 text-sm">-- Hz</span>
@@ -154,7 +166,7 @@
             </div>
 
             <!-- Detected Anomalies List -->
-            <div class="bg-slate-900 rounded-lg p-4 border border-slate-800 flex-1 flex flex-col min-h-0">
+            <div class="bg-slate-950/50 rounded-lg p-4 border border-slate-800 flex-1 flex flex-col min-h-0 mb-1">
                 <h2 class="text-[11px] font-bold tracking-widest text-slate-400 uppercase mb-3 flex items-center gap-2 flex-none">
                     <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> Strong Tones
                 </h2>
@@ -200,8 +212,8 @@
             </div>
         </aside>
 
-        <!-- Right Visualizers -->
-        <section class="flex-1 flex flex-col gap-2 min-w-0 relative group" id="visualizerGroup">
+        <!-- Right Visualizers (Now Full Width) -->
+        <section class="flex-1 flex flex-col gap-2 min-w-0 relative group w-full" id="visualizerGroup">
             
             <!-- Global Reticle overlay -->
             <div id="reticle-x" class="reticle-line"></div>
@@ -247,6 +259,11 @@
         const micIcon = document.getElementById('micIcon');
         const freezeBtn = document.getElementById('freezeBtn');
         const freezeText = document.getElementById('freezeText');
+        
+        // Settings Drawer Elements
+        const settingsBtn = document.getElementById('settingsBtn');
+        const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+        const settingsPanel = document.getElementById('settingsPanel');
         
         const specCanvas = document.getElementById('spectrumCanvas');
         const specCtx = specCanvas.getContext('2d');
@@ -329,6 +346,13 @@
         }
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
+
+        // Settings Panel Toggle
+        function toggleSettings() {
+            settingsPanel.classList.toggle('-translate-x-[120%]');
+        }
+        settingsBtn.addEventListener('click', toggleSettings);
+        closeSettingsBtn.addEventListener('click', toggleSettings);
 
         // Reticle Logic
         visualizerGroup.addEventListener('mousemove', (e) => {
