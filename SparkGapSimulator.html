@@ -56,6 +56,18 @@
             box-shadow: inset 0 0 100px rgba(0,0,0,1);
         }
 
+        /* Camera Shake Animation */
+        .shake {
+            animation: shake 0.15s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translate3d(0, 0, 0); }
+            20% { transform: translate3d(-3px, 2px, 0) rotate(-0.5deg); }
+            40% { transform: translate3d(3px, -1px, 0) rotate(0.5deg); }
+            60% { transform: translate3d(-2px, -2px, 0) rotate(-0.5deg); }
+            80% { transform: translate3d(2px, 2px, 0) rotate(0.5deg); }
+        }
+
         #spark-canvas {
             position: absolute;
             top: 0;
@@ -167,8 +179,8 @@
             height: 85px;
             background-color: #c00;
             transform-origin: bottom center;
-            transform: rotate(-45deg); /* -45 to 45 */
-            transition: transform 0.1s ease-out;
+            transform: rotate(-45deg);
+            transition: transform 0.1s cubic-bezier(0.4, 0, 0.2, 1);
             z-index: 4;
             box-shadow: 1px 0 2px rgba(0,0,0,0.3);
         }
@@ -201,8 +213,8 @@
             box-shadow: 0 10px 20px rgba(0,0,0,0.8), inset 0 2px 5px rgba(255,255,255,0.2);
             cursor: pointer;
             position: relative;
-            transform: rotate(-135deg); /* Start position */
-            touch-action: none; /* Prevent scrolling on touch devices */
+            transform: rotate(-135deg);
+            touch-action: none;
         }
 
         .dial-grip {
@@ -236,13 +248,13 @@
             height: 60px;
             background: linear-gradient(to right, #ccc, #888);
             transform-origin: bottom center;
-            transform: translate(-50%, -100%) rotate(-30deg); /* OFF */
+            transform: translate(-50%, -100%) rotate(-30deg);
             transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             box-shadow: 2px 2px 5px rgba(0,0,0,0.8);
         }
 
         .switch-container.on .switch-lever {
-            transform: translate(-50%, -100%) rotate(30deg); /* ON */
+            transform: translate(-50%, -100%) rotate(30deg);
         }
 
         /* --- Oscilloscope Screen --- */
@@ -255,6 +267,21 @@
             position: relative;
             box-shadow: inset 0 0 20px rgba(0,0,0,1), 0 5px 15px rgba(0,0,0,0.8);
             padding: 5px;
+            overflow: hidden;
+        }
+
+        /* CRT Scanlines Overlay */
+        .osc-bezel::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.04), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.04));
+            z-index: 2;
+            background-size: 100% 3px, 3px 100%;
+            pointer-events: none;
+            border-radius: 4px;
         }
 
         #osc-canvas {
@@ -395,6 +422,7 @@
             L: 100e-6,              // 100 uH (Inductance)
             R_charge: 50e6,         // 50 Megaohms (Slow charging for drama)
             breakdownVoltage: 15000,// Calculated via Paschen's Law (approx 3000V/mm in air)
+            breakdownJitter: 0,     // Random organic instability factor +/- 3%
             
             // RF Tank state
             tankEnergy: 0,          // Energy dumped into LC circuit upon spark
@@ -407,11 +435,15 @@
             sparkFramesRemaining: 0
         };
 
+        // Initialize first jitter
+        physics.breakdownJitter = (Math.random() - 0.5) * 0.06;
+
         // Calculate Resonant Frequency
         const resonantFreq = 1 / (2 * Math.PI * Math.sqrt(physics.L * physics.C));
         document.getElementById('freq-text').innerText = (resonantFreq / 1000).toFixed(1);
 
         // --- DOM Elements ---
+        const apparatusContainer = document.getElementById('apparatus-container');
         const capNeedle = document.getElementById('cap-needle');
         const supplyValTxt = document.getElementById('supply-val');
         const gapValTxt = document.getElementById('gap-val');
@@ -442,7 +474,13 @@
         let humGain;
         let humOscBase;
         let humOscBuzz;
+        let humOscDetune; // Secondary dissonant buzz
         let humFilter;
+
+        // Corona Hiss Variables
+        let hissGain;
+        let hissSource;
+        let hissFilter;
 
         function initAudio() {
             if(audioCtx) return;
@@ -463,20 +501,50 @@
             humOscBase.frequency.value = 60;
             humOscBase.connect(humGain);
 
-            // 120Hz Sawtooth for the angry electrical 'buzz'
+            // 120Hz Sawtooth for the primary angry electrical 'buzz'
             humOscBuzz = audioCtx.createOscillator();
             humOscBuzz.type = 'sawtooth';
             humOscBuzz.frequency.value = 120;
+            
+            // Secondary detuned buzz (creates sinister "beating" interference)
+            humOscDetune = audioCtx.createOscillator();
+            humOscDetune.type = 'square';
+            humOscDetune.frequency.value = 122.5; 
             
             // Dynamic lowpass filter to make the buzz brighter at higher voltages
             humFilter = audioCtx.createBiquadFilter();
             humFilter.type = 'lowpass';
             humFilter.frequency.value = 200;
             humOscBuzz.connect(humFilter);
+            humOscDetune.connect(humFilter);
             humFilter.connect(humGain);
 
+            // --- Setup Corona Hiss (White noise) ---
+            hissGain = audioCtx.createGain();
+            hissGain.gain.value = 0;
+            hissGain.connect(masterGain);
+            
+            const bufferSize = audioCtx.sampleRate * 2.0;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+            
+            hissSource = audioCtx.createBufferSource();
+            hissSource.buffer = buffer;
+            hissSource.loop = true;
+            
+            hissFilter = audioCtx.createBiquadFilter();
+            hissFilter.type = 'highpass';
+            hissFilter.frequency.value = 3500; // Keep only the hissy highs
+            
+            hissSource.connect(hissFilter);
+            hissFilter.connect(hissGain);
+
+            // Start everything
             humOscBase.start();
             humOscBuzz.start();
+            humOscDetune.start();
+            hissSource.start();
         }
 
         function playZapSound(intensity) {
@@ -489,7 +557,7 @@
             const env = audioCtx.createGain();
             
             // Create white noise buffer
-            const bufferSize = audioCtx.sampleRate * 0.1; // 100ms
+            const bufferSize = audioCtx.sampleRate * 0.15; // 150ms
             const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
             const data = buffer.getChannelData(0);
             for (let i = 0; i < bufferSize; i++) {
@@ -499,17 +567,17 @@
             
             // Filter noise to sound electrical
             noiseFilter.type = 'bandpass';
-            noiseFilter.frequency.value = 4000;
-            noiseFilter.Q.value = 1;
+            noiseFilter.frequency.value = 3000 + Math.random()*2000;
+            noiseFilter.Q.value = 0.5;
             
             // Oscillator for low hum/buzz of arc
             osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(100 + Math.random()*50, audioCtx.currentTime);
+            osc.frequency.setValueAtTime(80 + Math.random()*60, audioCtx.currentTime);
             
             // Envelope (Sharp attack, exponential decay)
             env.gain.setValueAtTime(0, audioCtx.currentTime);
-            env.gain.linearRampToValueAtTime(intensity, audioCtx.currentTime + 0.01);
-            env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+            env.gain.linearRampToValueAtTime(intensity * 1.5, audioCtx.currentTime + 0.005);
+            env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
             
             // Connections
             noise.connect(noiseFilter);
@@ -519,8 +587,8 @@
             
             osc.start();
             noise.start();
-            osc.stop(audioCtx.currentTime + 0.1);
-            noise.stop(audioCtx.currentTime + 0.1);
+            osc.stop(audioCtx.currentTime + 0.15);
+            noise.stop(audioCtx.currentTime + 0.15);
         }
 
 
@@ -613,13 +681,25 @@
         // --- Simulation Engine ---
         
         function updatePhysics(dt_sec) {
+            // Actual required voltage varies organically per spark event
+            const effectiveBreakdown = physics.breakdownVoltage * (1.0 + physics.breakdownJitter);
+            
             if (!physics.powerOn) {
                 // Discharge slowly if power is off (leakage)
                 physics.capVoltage *= Math.exp(-dt_sec / 2.0); 
             } else {
+                // Functional Enhancement: Corona Leakage
+                // As voltage approaches breakdown, energy starts bleeding into the air 
+                // as ionized plasma, causing the charging curve to fight harder at the top.
+                const chargeRatio = physics.capVoltage / (effectiveBreakdown || 1);
+                let leakagePenalty = 0;
+                if (chargeRatio > 0.8) {
+                    leakagePenalty = Math.pow((chargeRatio - 0.8) * 5, 2) * 5000; // Drops up to 5kV effectively
+                }
+                
                 // RC Charging Phase: Vc = Vs - (Vs - Vc)*e^(-t/RC)
                 const tau = physics.R_charge * physics.C;
-                const targetV = physics.supplyVoltage;
+                const targetV = Math.max(0, physics.supplyVoltage - leakagePenalty);
                 
                 // If it's sparking, cap is effectively shorted momentarily
                 if (physics.sparkFramesRemaining <= 0) {
@@ -627,41 +707,68 @@
                 }
             }
             
-            // Update Hollywood Hum Sound dynamically based on charge
-            if (audioCtx && humGain) {
+            // Update Sinister Audio Soundscape dynamically based on charge
+            if (audioCtx && humGain && hissGain) {
                 if (physics.powerOn) {
                     const vRatio = Math.max(0, physics.capVoltage / 50000);
-                    // Base hum starts low, rises aggressively as cap nears 50kV
+                    const breakRatio = Math.max(0, physics.capVoltage / (effectiveBreakdown || 1));
+                    
+                    // Base hum starts low, rises aggressively
                     const targetVol = Math.pow(vRatio, 2) * 1.5 + (physics.supplyVoltage > 0 ? 0.05 : 0);
                     humGain.gain.setTargetAtTime(targetVol, audioCtx.currentTime, 0.05);
                     
-                    // The "angry electrical buzz" opens up as voltage rises
-                    const targetFreq = 200 + (Math.pow(vRatio, 1.5) * 2500);
+                    // The "angry electrical buzz" opens up and gets wildly brighter near breakdown
+                    const targetFreq = 200 + (Math.pow(vRatio, 1.5) * 3500);
                     humFilter.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.05);
+
+                    // Fade in the sinister Corona hiss as we reach 75% capacity
+                    if (breakRatio > 0.75) {
+                        const targetHiss = Math.pow((breakRatio - 0.75) / 0.25, 2) * 0.4;
+                        hissGain.gain.setTargetAtTime(targetHiss, audioCtx.currentTime, 0.05);
+                    } else {
+                        hissGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                    }
+                    
+                    // Modulate the detune buzz wildly near the top for an unstable sputtering effect
+                    if(breakRatio > 0.9) {
+                        humOscDetune.frequency.setTargetAtTime(120 + Math.random()*15, audioCtx.currentTime, 0.02);
+                    } else {
+                        humOscDetune.frequency.setTargetAtTime(122.5, audioCtx.currentTime, 0.1);
+                    }
+                    
                 } else {
-                    // Power off, fade out quickly
+                    // Power off, fade out everything
                     humGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                    hissGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
                 }
             }
 
             // Check for breakdown (Spark!)
-            if (physics.capVoltage >= physics.breakdownVoltage && physics.breakdownVoltage > 0) {
+            if (physics.capVoltage >= effectiveBreakdown && effectiveBreakdown > 0) {
                 // Energy E = 1/2 C V^2
                 const dischargeEnergy = 0.5 * physics.C * Math.pow(physics.capVoltage, 2);
                 
                 // Dump energy into LC tank for radio emission
                 physics.tankEnergy = Math.max(physics.tankEnergy, dischargeEnergy);
                 
-                // Visual / Audio trigger
-                physics.sparkFramesRemaining = 3; // Keep visual spark for 3 frames
+                // Trigger Visuals / Audio
+                physics.sparkFramesRemaining = 4; // Keep visual spark for 4 frames
                 playZapSound(Math.min(1.0, physics.capVoltage / 50000 + 0.2));
                 
                 // Capacitor discharges completely across the gap
                 physics.capVoltage = 0; 
                 
-                // Light up background
-                ambientLight.style.opacity = 0.8;
-                setTimeout(() => ambientLight.style.opacity = 0, 50);
+                // Re-roll organic instability jitter for next spark
+                physics.breakdownJitter = (Math.random() - 0.5) * 0.06;
+                
+                // Flash ambient background
+                ambientLight.style.opacity = 0.9;
+                setTimeout(() => ambientLight.style.opacity = 0, 60);
+
+                // Camera Shake
+                apparatusContainer.classList.remove('shake');
+                void apparatusContainer.offsetWidth; // Trigger reflow to restart CSS animation
+                apparatusContainer.classList.add('shake');
             }
 
             if (physics.sparkFramesRemaining > 0) {
@@ -675,8 +782,9 @@
             }
 
             // Update UI Voltmeter
-            // Needle rotates from -45 to 45 deg representing 0 to 50kV
-            let needleAngle = -45 + (physics.capVoltage / 50000) * 90;
+            // Add slight analog jitter to the needle
+            let analogNoise = (Math.random() - 0.5) * (physics.capVoltage > 1000 ? 0.5 : 0);
+            let needleAngle = -45 + (physics.capVoltage / 50000) * 90 + analogNoise;
             capNeedle.style.transform = `rotate(${needleAngle}deg)`;
         }
 
@@ -740,32 +848,71 @@
             
             sparkCtx.restore();
 
-            // Draw Spark
+            // --- Pre-Spark Corona Discharge Visualization ---
+            const effectiveBreakdown = physics.breakdownVoltage * (1.0 + physics.breakdownJitter);
+            const breakRatio = physics.capVoltage / (effectiveBreakdown || 1);
+            
+            if (breakRatio > 0.6 && physics.sparkFramesRemaining <= 0) {
+                sparkCtx.save();
+                sparkCtx.globalCompositeOperation = 'screen';
+                
+                // Intensity scales aggressively near 1.0
+                const intensity = Math.pow((breakRatio - 0.6) / 0.4, 3);
+                const coronaRadius = 16 + intensity * 25 + Math.random() * 4;
+                
+                // Left corona aura
+                sparkCtx.beginPath();
+                sparkCtx.arc(leftX + 8, centerY, coronaRadius, 0, Math.PI * 2);
+                let cGrad = sparkCtx.createRadialGradient(leftX+8, centerY, 0, leftX+8, centerY, coronaRadius);
+                cGrad.addColorStop(0, `rgba(180, 180, 255, ${intensity * 0.9})`);
+                cGrad.addColorStop(1, 'rgba(100, 0, 255, 0)');
+                sparkCtx.fillStyle = cGrad;
+                sparkCtx.fill();
+                
+                // Right corona aura
+                sparkCtx.beginPath();
+                sparkCtx.arc(rightX - 8, centerY, coronaRadius, 0, Math.PI * 2);
+                cGrad = sparkCtx.createRadialGradient(rightX-8, centerY, 0, rightX-8, centerY, coronaRadius);
+                cGrad.addColorStop(0, `rgba(180, 180, 255, ${intensity * 0.9})`);
+                cGrad.addColorStop(1, 'rgba(100, 0, 255, 0)');
+                sparkCtx.fillStyle = cGrad;
+                sparkCtx.fill();
+                
+                sparkCtx.restore();
+            }
+
+            // --- Main Spark Rendering ---
             if (physics.sparkFramesRemaining > 0) {
                 sparkCtx.save();
-                sparkCtx.shadowBlur = 15;
+                sparkCtx.shadowBlur = 20;
                 sparkCtx.shadowColor = '#00ffff';
                 sparkCtx.strokeStyle = '#e0ffff';
-                sparkCtx.lineWidth = 3;
                 sparkCtx.lineCap = 'round';
                 sparkCtx.lineJoin = 'round';
 
-                // Draw a few jagged arcs
-                for(let arcs=0; arcs<3; arcs++) {
-                    sparkCtx.beginPath();
-                    sparkCtx.moveTo(leftX + 15, centerY);
+                // Energy dictates thickness
+                const energyBase = Math.min(1.0, effectiveBreakdown / 50000);
+                
+                // Draw multiple branching jagged arcs
+                for(let arcs=0; arcs < 4; arcs++) {
+                    sparkCtx.lineWidth = (arcs === 0 ? 4 : 1.5) * energyBase + 1; // 1 thick core, 3 thin branches
                     
-                    let curX = leftX + 15;
+                    sparkCtx.beginPath();
+                    sparkCtx.moveTo(leftX + 14, centerY);
+                    
+                    let curX = leftX + 14;
                     let curY = centerY;
-                    const segments = Math.floor(visualGap / 10) + 2;
-                    const dx = (rightX - 15 - curX) / segments;
+                    const segments = Math.floor(visualGap / 8) + 2;
+                    const dx = (rightX - 14 - curX) / segments;
                     
                     for(let i=0; i<segments; i++) {
                         curX += dx;
-                        // Random y displacement
-                        let dy = (Math.random() - 0.5) * 30;
+                        // Random y displacement, more chaotic for branches
+                        let spread = arcs === 0 ? 25 : 50; 
+                        let dy = (Math.random() - 0.5) * spread;
+                        
                         if(i === segments - 1) {
-                            curX = rightX - 15;
+                            curX = rightX - 14;
                             curY = centerY;
                         } else {
                             curY = centerY + dy;
@@ -775,10 +922,15 @@
                     sparkCtx.stroke();
                 }
                 
-                // Core bright white layer
-                sparkCtx.shadowBlur = 0;
+                // Core super-bright white layer over the top
+                sparkCtx.shadowBlur = 5;
                 sparkCtx.strokeStyle = '#ffffff';
-                sparkCtx.lineWidth = 1.5;
+                sparkCtx.lineWidth = 2.5 * energyBase + 1;
+                
+                sparkCtx.beginPath();
+                sparkCtx.moveTo(leftX + 14, centerY);
+                sparkCtx.lineTo((leftX+rightX)/2, centerY + (Math.random()-0.5)*10); // Simple bolt center
+                sparkCtx.lineTo(rightX - 14, centerY);
                 sparkCtx.stroke();
                 
                 sparkCtx.restore();
@@ -794,7 +946,7 @@
             oscCtx.fillRect(0, 0, w, h);
             
             // Grid
-            oscCtx.strokeStyle = 'rgba(0, 255, 0, 0.1)';
+            oscCtx.strokeStyle = 'rgba(0, 255, 0, 0.15)';
             oscCtx.lineWidth = 1;
             oscCtx.beginPath();
             oscCtx.moveTo(0, h/2); oscCtx.lineTo(w, h/2);
@@ -804,7 +956,9 @@
             // Waveform
             oscCtx.beginPath();
             oscCtx.strokeStyle = 'var(--phosphor)';
-            oscCtx.lineWidth = 2;
+            oscCtx.lineWidth = 2.5;
+            oscCtx.shadowBlur = 8;
+            oscCtx.shadowColor = '#4af54a';
             
             // Amplitude tied to tank energy
             // Energy = 0.5 * C * V^2, so V proportional to sqrt(Energy)
@@ -816,10 +970,14 @@
             for(let x=0; x<w; x++) {
                 // Add an envelope so it looks like a pulse packet decaying left-to-right
                 const envelope = Math.exp(-x / (w/3));
-                const y = h/2 - (Math.sin(oscPhase + x * 0.5) * amplitude * envelope);
+                // Add tiny visual noise to the sine wave
+                const noise = (Math.random() - 0.5) * (amplitude > 5 ? 3 : 0);
+                const y = h/2 - (Math.sin(oscPhase + x * 0.5) * amplitude * envelope) + noise;
                 oscCtx.lineTo(x, y);
             }
             oscCtx.stroke();
+            
+            oscCtx.shadowBlur = 0; // Reset
             
             // Oscillate phase rapidly to simulate high freq RF
             if (physics.tankEnergy > 0) {
