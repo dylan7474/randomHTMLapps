@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frankenstein Spark Gap Transmitter</title>
+    <style>
+        :root {
+            --wood-bg: #2a1b12;
+            --brass: #b5a642;
+            --brass-dark: #6e6423;
+            --copper: #b87333;
+            --meter-bg: #e6e0d4;
+            --phosphor: #4af54a;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            background-image: radial-gradient(circle at center, #1a1a1a 0%, #000000 100%);
+            color: #ccc;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            user-select: none;
+        }
+
+        /* --- Header --- */
+        header {
+            text-align: center;
+            padding: 10px;
+            background: linear-gradient(to bottom, #111, #000);
+            border-bottom: 2px solid var(--brass-dark);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.8);
+            z-index: 10;
+        }
+        h1 {
+            margin: 0;
+            color: var(--brass);
+            text-shadow: 2px 2px 4px #000, 0 0 10px rgba(181, 166, 66, 0.3);
+            font-size: 24px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        /* --- Main Apparatus Area --- */
+        #apparatus-container {
+            flex-grow: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            box-shadow: inset 0 0 100px rgba(0,0,0,1);
+        }
+
+        #spark-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+        }
+
+        /* Ambient Lighting */
+        #ambient-light {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(100,200,255,0.1) 0%, transparent 60%);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.1s;
+            z-index: 1;
+        }
+
+        /* --- Control Panel --- */
+        #control-panel {
+            height: 280px;
+            background: linear-gradient(135deg, #3d2817 0%, #1c110a 100%);
+            border-top: 6px solid var(--copper);
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8), 0 -10px 20px rgba(0,0,0,0.9);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 20px;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* Wood Texture Overlay */
+        #control-panel::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: repeating-linear-gradient(
+                45deg,
+                rgba(0,0,0,0.1) 0px,
+                rgba(0,0,0,0.1) 2px,
+                transparent 2px,
+                transparent 4px
+            );
+            pointer-events: none;
+        }
+
+        .panel-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+        }
+
+        .label {
+            color: var(--brass);
+            font-size: 14px;
+            font-weight: bold;
+            margin-top: 15px;
+            text-align: center;
+            text-shadow: 1px 1px 2px #000;
+            background: rgba(0,0,0,0.5);
+            padding: 3px 8px;
+            border: 1px solid var(--brass-dark);
+            border-radius: 3px;
+        }
+
+        /* --- Analog Meter --- */
+        .meter-bezel {
+            width: 140px;
+            height: 100px;
+            background: radial-gradient(circle at center, #fff, var(--meter-bg));
+            border: 8px solid var(--brass);
+            border-radius: 6px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5), 0 5px 15px rgba(0,0,0,0.8);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .meter-glass {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 50%);
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .meter-scale {
+            position: absolute;
+            top: 10%;
+            left: 10%;
+            width: 80%;
+            height: 80%;
+            border-top: 2px solid #333;
+            border-radius: 50% 50% 0 0;
+        }
+
+        .meter-needle {
+            position: absolute;
+            bottom: -10px;
+            left: 50%;
+            width: 2px;
+            height: 85px;
+            background-color: #c00;
+            transform-origin: bottom center;
+            transform: rotate(-45deg); /* -45 to 45 */
+            transition: transform 0.1s ease-out;
+            z-index: 4;
+            box-shadow: 1px 0 2px rgba(0,0,0,0.3);
+        }
+
+        .meter-pin {
+            position: absolute;
+            bottom: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 12px;
+            height: 12px;
+            background: var(--brass-dark);
+            border-radius: 50%;
+            z-index: 6;
+        }
+
+        /* --- Dial --- */
+        .dial-container {
+            position: relative;
+            width: 100px;
+            height: 100px;
+        }
+
+        .dial {
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(circle at center, #444, #111);
+            border: 4px solid var(--brass);
+            border-radius: 50%;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.8), inset 0 2px 5px rgba(255,255,255,0.2);
+            cursor: pointer;
+            position: relative;
+            transform: rotate(-135deg); /* Start position */
+            touch-action: none; /* Prevent scrolling on touch devices */
+        }
+
+        .dial-grip {
+            position: absolute;
+            top: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 10px;
+            height: 20px;
+            background: var(--brass);
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        /* --- Switch --- */
+        .switch-container {
+            width: 60px;
+            height: 90px;
+            background: #111;
+            border: 3px solid var(--copper);
+            position: relative;
+            cursor: pointer;
+            box-shadow: inset 0 0 10px #000, 0 5px 10px rgba(0,0,0,0.8);
+        }
+
+        .switch-lever {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 60px;
+            background: linear-gradient(to right, #ccc, #888);
+            transform-origin: bottom center;
+            transform: translate(-50%, -100%) rotate(-30deg); /* OFF */
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.8);
+        }
+
+        .switch-container.on .switch-lever {
+            transform: translate(-50%, -100%) rotate(30deg); /* ON */
+        }
+
+        /* --- Oscilloscope Screen --- */
+        .osc-bezel {
+            width: 160px;
+            height: 120px;
+            background: #111;
+            border: 6px solid #4a5d23;
+            border-radius: 10px 10px 30px 10px;
+            position: relative;
+            box-shadow: inset 0 0 20px rgba(0,0,0,1), 0 5px 15px rgba(0,0,0,0.8);
+            padding: 5px;
+        }
+
+        #osc-canvas {
+            width: 100%;
+            height: 100%;
+            background-color: #0a140a;
+            border-radius: 4px;
+            box-shadow: inset 0 0 15px rgba(0,255,0,0.1);
+        }
+
+        /* Data readout */
+        .readout {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            color: var(--brass);
+            font-size: 12px;
+            text-align: right;
+            text-shadow: 0 0 5px rgba(181, 166, 66, 0.5);
+            pointer-events: none;
+        }
+
+        /* Instructions Modal */
+        #instructions {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(10, 10, 10, 0.95);
+            border: 2px solid var(--copper);
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 30px #000;
+            z-index: 100;
+            text-align: center;
+            max-width: 400px;
+        }
+        #instructions h2 { color: var(--brass); margin-top:0; }
+        #instructions p { line-height: 1.5; color: #aaa; font-size: 14px;}
+        #start-btn {
+            background: var(--copper);
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            font-family: inherit;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 15px;
+            border-radius: 3px;
+        }
+        #start-btn:hover { background: #d08844; }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Frankenstein Spark Gap Transmitter</h1>
+    </header>
+
+    <div id="apparatus-container">
+        <canvas id="spark-canvas"></canvas>
+        <div id="ambient-light"></div>
+        <div class="readout">
+            <div>PHYSICS ENGINE ACTIVE</div>
+            <div>Paschen's Law Threshold: <span id="v-break-text">15.0</span> kV</div>
+            <div>LC Resonant Frequency: <span id="freq-text">159</span> kHz</div>
+            <div style="margin-top:5px; color:#aaa;">R = 50 MΩ | C = 10 nF | L = 100 µH</div>
+        </div>
+    </div>
+
+    <div id="control-panel">
+        
+        <!-- Power Switch -->
+        <div class="panel-section">
+            <div class="switch-container" id="main-power">
+                <div class="switch-lever"></div>
+            </div>
+            <div class="label">MAIN POWER</div>
+        </div>
+
+        <!-- Supply Voltage Dial -->
+        <div class="panel-section">
+            <div class="dial-container">
+                <div class="dial" id="supply-dial">
+                    <div class="dial-grip"></div>
+                </div>
+            </div>
+            <div class="label">SUPPLY VOLTAGE<br><span id="supply-val">0</span> kV</div>
+        </div>
+
+        <!-- Capacitor Voltmeter -->
+        <div class="panel-section">
+            <div class="meter-bezel">
+                <div class="meter-glass"></div>
+                <div class="meter-scale"></div>
+                <div class="meter-needle" id="cap-needle"></div>
+                <div class="meter-pin"></div>
+            </div>
+            <div class="label">CAPACITOR CHARGE<br>(Max 50 kV)</div>
+        </div>
+
+        <!-- Gap Distance Dial -->
+        <div class="panel-section">
+            <div class="dial-container" style="transform: scale(0.8);">
+                <div class="dial" id="gap-dial" style="transform: rotate(0deg);">
+                    <div class="dial-grip"></div>
+                </div>
+            </div>
+            <div class="label">SPARK GAP<br><span id="gap-val">5.0</span> mm</div>
+        </div>
+
+        <!-- Oscilloscope -->
+        <div class="panel-section">
+            <div class="osc-bezel">
+                <canvas id="osc-canvas"></canvas>
+            </div>
+            <div class="label">RF EMISSION</div>
+        </div>
+
+    </div>
+
+    <!-- Instructions Overlay -->
+    <div id="instructions">
+        <h2>DANGER: HIGH VOLTAGE</h2>
+        <p>Welcome to the laboratory. This apparatus simulates an early radio pioneer's spark gap transmitter using accurate electrical physics.</p>
+        <p>1. Engage <b>MAIN POWER</b>.<br>2. Adjust the <b>SPARK GAP</b> distance.<br>3. Slowly increase the <b>SUPPLY VOLTAGE</b> until it breaches the atmospheric breakdown threshold.</p>
+        <button id="start-btn">ACKNOWLEDGE & BEGIN</button>
+    </div>
+
+    <script>
+        // --- Physics State ---
+        const physics = {
+            powerOn: false,
+            supplyVoltage: 0,       // 0 to 50,000 V
+            capVoltage: 0,          // Current voltage in capacitor
+            gapDistance: 5.0,       // mm (Range: 1.0 to 15.0)
+            C: 10e-9,               // 10 nF (Capacitance)
+            L: 100e-6,              // 100 uH (Inductance)
+            R_charge: 50e6,         // 50 Megaohms (Slow charging for drama)
+            breakdownVoltage: 15000,// Calculated via Paschen's Law (approx 3000V/mm in air)
+            
+            // RF Tank state
+            tankEnergy: 0,          // Energy dumped into LC circuit upon spark
+            
+            // Simulation timing
+            lastTime: performance.now(),
+            
+            // Visual state
+            isSparking: false,
+            sparkFramesRemaining: 0
+        };
+
+        // Calculate Resonant Frequency
+        const resonantFreq = 1 / (2 * Math.PI * Math.sqrt(physics.L * physics.C));
+        document.getElementById('freq-text').innerText = (resonantFreq / 1000).toFixed(1);
+
+        // --- DOM Elements ---
+        const capNeedle = document.getElementById('cap-needle');
+        const supplyValTxt = document.getElementById('supply-val');
+        const gapValTxt = document.getElementById('gap-val');
+        const vBreakTxt = document.getElementById('v-break-text');
+        const ambientLight = document.getElementById('ambient-light');
+        
+        // Canvas Contexts
+        const sparkCanvas = document.getElementById('spark-canvas');
+        const sparkCtx = sparkCanvas.getContext('2d');
+        const oscCanvas = document.getElementById('osc-canvas');
+        const oscCtx = oscCanvas.getContext('2d');
+
+        // Resize Canvas
+        function resizeCanvases() {
+            sparkCanvas.width = sparkCanvas.clientWidth;
+            sparkCanvas.height = sparkCanvas.clientHeight;
+            oscCanvas.width = oscCanvas.clientWidth;
+            oscCanvas.height = oscCanvas.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvases);
+        resizeCanvases();
+
+        // --- Audio Context (Web Audio API) ---
+        let audioCtx;
+        let masterGain;
+
+        function initAudio() {
+            if(audioCtx) return;
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioContext();
+            masterGain = audioCtx.createGain();
+            masterGain.gain.value = 0.5;
+            masterGain.connect(audioCtx.destination);
+        }
+
+        function playZapSound(intensity) {
+            if (!audioCtx) return;
+            
+            // Generate a harsh snap/zap sound
+            const osc = audioCtx.createOscillator();
+            const noise = audioCtx.createBufferSource();
+            const noiseFilter = audioCtx.createBiquadFilter();
+            const env = audioCtx.createGain();
+            
+            // Create white noise buffer
+            const bufferSize = audioCtx.sampleRate * 0.1; // 100ms
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+            noise.buffer = buffer;
+            
+            // Filter noise to sound electrical
+            noiseFilter.type = 'bandpass';
+            noiseFilter.frequency.value = 4000;
+            noiseFilter.Q.value = 1;
+            
+            // Oscillator for low hum/buzz of arc
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(100 + Math.random()*50, audioCtx.currentTime);
+            
+            // Envelope (Sharp attack, exponential decay)
+            env.gain.setValueAtTime(0, audioCtx.currentTime);
+            env.gain.linearRampToValueAtTime(intensity, audioCtx.currentTime + 0.01);
+            env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+            
+            // Connections
+            noise.connect(noiseFilter);
+            noiseFilter.connect(env);
+            osc.connect(env);
+            env.connect(masterGain);
+            
+            osc.start();
+            noise.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+            noise.stop(audioCtx.currentTime + 0.1);
+        }
+
+
+        // --- UI Interactions ---
+        
+        // 1. Instructions
+        document.getElementById('start-btn').addEventListener('click', () => {
+            document.getElementById('instructions').style.display = 'none';
+        });
+
+        // 2. Power Switch
+        const powerSwitch = document.getElementById('main-power');
+        powerSwitch.addEventListener('click', () => {
+            initAudio();
+            physics.powerOn = !physics.powerOn;
+            if (physics.powerOn) {
+                powerSwitch.classList.add('on');
+            } else {
+                powerSwitch.classList.remove('on');
+                physics.supplyVoltage = 0; // Kills supply
+                updateDialRotation('supply-dial', -135);
+                supplyValTxt.innerText = "0";
+            }
+        });
+
+        // 3. Dial Logic (Generic Rotational Drag)
+        function setupDial(dialId, minAngle, maxAngle, minVal, maxVal, onChange) {
+            const dial = document.getElementById(dialId);
+            let isDragging = false;
+            
+            const updateFromMouse = (e) => {
+                if(!isDragging || (!physics.powerOn && dialId === 'supply-dial')) return;
+                
+                const rect = dial.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                
+                let clientX = e.clientX || (e.touches && e.touches[0].clientX);
+                let clientY = e.clientY || (e.touches && e.touches[0].clientY);
+                
+                // Calculate angle in degrees (-180 to 180)
+                let angle = Math.atan2(clientY - centerY, clientX - centerX) * (180 / Math.PI);
+                
+                // Adjust to make 'up' 0 degrees, rotating clockwise
+                angle = angle + 90; 
+                
+                // Clamp angle
+                if (angle < minAngle && angle > minAngle - 45) angle = minAngle;
+                if (angle > maxAngle && angle < maxAngle + 45) angle = maxAngle;
+                
+                if (angle >= minAngle && angle <= maxAngle) {
+                    dial.style.transform = `rotate(${angle}deg)`;
+                    // Map angle to value
+                    const percentage = (angle - minAngle) / (maxAngle - minAngle);
+                    const val = minVal + percentage * (maxVal - minVal);
+                    onChange(val);
+                }
+            };
+
+            dial.addEventListener('mousedown', () => { isDragging = true; initAudio(); });
+            dial.addEventListener('touchstart', (e) => { isDragging = true; initAudio(); e.preventDefault(); }, {passive: false});
+            
+            window.addEventListener('mouseup', () => isDragging = false);
+            window.addEventListener('touchend', () => isDragging = false);
+            
+            window.addEventListener('mousemove', updateFromMouse);
+            window.addEventListener('touchmove', updateFromMouse, {passive: false});
+        }
+
+        function updateDialRotation(dialId, angle) {
+            document.getElementById(dialId).style.transform = `rotate(${angle}deg)`;
+        }
+
+        // Setup Supply Dial (-135 to 135 deg -> 0 to 50000 V)
+        setupDial('supply-dial', -135, 135, 0, 50000, (val) => {
+            physics.supplyVoltage = val;
+            supplyValTxt.innerText = (val / 1000).toFixed(1);
+        });
+
+        // Setup Gap Dial (-135 to 135 deg -> 1.0 to 15.0 mm)
+        setupDial('gap-dial', -135, 135, 1.0, 15.0, (val) => {
+            physics.gapDistance = val;
+            gapValTxt.innerText = val.toFixed(1);
+            // Paschen's Law approximation: 3000V per mm
+            physics.breakdownVoltage = val * 3000;
+            vBreakTxt.innerText = (physics.breakdownVoltage / 1000).toFixed(1);
+        });
+
+
+        // --- Simulation Engine ---
+        
+        function updatePhysics(dt_sec) {
+            if (!physics.powerOn) {
+                // Discharge slowly if power is off (leakage)
+                physics.capVoltage *= Math.exp(-dt_sec / 2.0); 
+            } else {
+                // RC Charging Phase: Vc = Vs - (Vs - Vc)*e^(-t/RC)
+                const tau = physics.R_charge * physics.C;
+                const targetV = physics.supplyVoltage;
+                
+                // If it's sparking, cap is effectively shorted momentarily
+                if (physics.sparkFramesRemaining <= 0) {
+                     physics.capVoltage = targetV - (targetV - physics.capVoltage) * Math.exp(-dt_sec / tau);
+                }
+            }
+
+            // Check for breakdown (Spark!)
+            if (physics.capVoltage >= physics.breakdownVoltage && physics.breakdownVoltage > 0) {
+                // Energy E = 1/2 C V^2
+                const dischargeEnergy = 0.5 * physics.C * Math.pow(physics.capVoltage, 2);
+                
+                // Dump energy into LC tank for radio emission
+                physics.tankEnergy = Math.max(physics.tankEnergy, dischargeEnergy);
+                
+                // Visual / Audio trigger
+                physics.sparkFramesRemaining = 3; // Keep visual spark for 3 frames
+                playZapSound(Math.min(1.0, physics.capVoltage / 50000 + 0.2));
+                
+                // Capacitor discharges completely across the gap
+                physics.capVoltage = 0; 
+                
+                // Light up background
+                ambientLight.style.opacity = 0.8;
+                setTimeout(() => ambientLight.style.opacity = 0, 50);
+            }
+
+            if (physics.sparkFramesRemaining > 0) {
+                physics.sparkFramesRemaining--;
+            }
+
+            // Damped LC Oscillation for the Oscilloscope (Energy decays over time)
+            if (physics.tankEnergy > 0) {
+                physics.tankEnergy *= Math.exp(-dt_sec * 50); // Damping factor
+                if (physics.tankEnergy < 1e-10) physics.tankEnergy = 0;
+            }
+
+            // Update UI Voltmeter
+            // Needle rotates from -45 to 45 deg representing 0 to 50kV
+            let needleAngle = -45 + (physics.capVoltage / 50000) * 90;
+            capNeedle.style.transform = `rotate(${needleAngle}deg)`;
+        }
+
+
+        // --- Rendering ---
+        let oscPhase = 0;
+
+        function drawSparkGap() {
+            sparkCtx.clearRect(0, 0, sparkCanvas.width, sparkCanvas.height);
+            
+            const w = sparkCanvas.width;
+            const h = sparkCanvas.height;
+            const centerY = h / 2;
+            const centerX = w / 2;
+            
+            // Max visual gap is roughly 100px mapped to 15mm
+            const visualGap = (physics.gapDistance / 15.0) * 120;
+            const leftX = centerX - visualGap/2;
+            const rightX = centerX + visualGap/2;
+
+            // Draw Base/Insulators
+            sparkCtx.fillStyle = '#111';
+            sparkCtx.fillRect(leftX - 60, centerY + 30, 40, h - centerY);
+            sparkCtx.fillRect(rightX + 20, centerY + 30, 40, h - centerY);
+            
+            sparkCtx.fillStyle = '#222';
+            sparkCtx.fillRect(leftX - 70, centerY + 20, 60, 10);
+            sparkCtx.fillRect(rightX + 10, centerY + 20, 60, 10);
+
+            // Draw Electrodes (Brass/Platinum spheres on rods)
+            sparkCtx.save();
+            
+            // Left Rod
+            let grad = sparkCtx.createLinearGradient(0, centerY-10, 0, centerY+10);
+            grad.addColorStop(0, '#555');
+            grad.addColorStop(0.5, '#aaa');
+            grad.addColorStop(1, '#333');
+            sparkCtx.fillStyle = grad;
+            sparkCtx.fillRect(leftX - 100, centerY - 6, 100, 12);
+            
+            // Right Rod
+            sparkCtx.fillRect(rightX, centerY - 6, 100, 12);
+
+            // Left Sphere
+            sparkCtx.beginPath();
+            sparkCtx.arc(leftX, centerY, 15, 0, Math.PI * 2);
+            let sGrad = sparkCtx.createRadialGradient(leftX-5, centerY-5, 2, leftX, centerY, 15);
+            sGrad.addColorStop(0, '#fff');
+            sGrad.addColorStop(1, '#888');
+            sparkCtx.fillStyle = sGrad;
+            sparkCtx.fill();
+            
+            // Right Sphere
+            sparkCtx.beginPath();
+            sparkCtx.arc(rightX, centerY, 15, 0, Math.PI * 2);
+            sGrad = sparkCtx.createRadialGradient(rightX-5, centerY-5, 2, rightX, centerY, 15);
+            sGrad.addColorStop(0, '#fff');
+            sGrad.addColorStop(1, '#888');
+            sparkCtx.fillStyle = sGrad;
+            sparkCtx.fill();
+            
+            sparkCtx.restore();
+
+            // Draw Spark
+            if (physics.sparkFramesRemaining > 0) {
+                sparkCtx.save();
+                sparkCtx.shadowBlur = 15;
+                sparkCtx.shadowColor = '#00ffff';
+                sparkCtx.strokeStyle = '#e0ffff';
+                sparkCtx.lineWidth = 3;
+                sparkCtx.lineCap = 'round';
+                sparkCtx.lineJoin = 'round';
+
+                // Draw a few jagged arcs
+                for(let arcs=0; arcs<3; arcs++) {
+                    sparkCtx.beginPath();
+                    sparkCtx.moveTo(leftX + 15, centerY);
+                    
+                    let curX = leftX + 15;
+                    let curY = centerY;
+                    const segments = Math.floor(visualGap / 10) + 2;
+                    const dx = (rightX - 15 - curX) / segments;
+                    
+                    for(let i=0; i<segments; i++) {
+                        curX += dx;
+                        // Random y displacement
+                        let dy = (Math.random() - 0.5) * 30;
+                        if(i === segments - 1) {
+                            curX = rightX - 15;
+                            curY = centerY;
+                        } else {
+                            curY = centerY + dy;
+                        }
+                        sparkCtx.lineTo(curX, curY);
+                    }
+                    sparkCtx.stroke();
+                }
+                
+                // Core bright white layer
+                sparkCtx.shadowBlur = 0;
+                sparkCtx.strokeStyle = '#ffffff';
+                sparkCtx.lineWidth = 1.5;
+                sparkCtx.stroke();
+                
+                sparkCtx.restore();
+            }
+        }
+
+        function drawOscilloscope() {
+            const w = oscCanvas.width;
+            const h = oscCanvas.height;
+            
+            // Fade effect for phosphor persistence
+            oscCtx.fillStyle = 'rgba(10, 20, 10, 0.2)';
+            oscCtx.fillRect(0, 0, w, h);
+            
+            // Grid
+            oscCtx.strokeStyle = 'rgba(0, 255, 0, 0.1)';
+            oscCtx.lineWidth = 1;
+            oscCtx.beginPath();
+            oscCtx.moveTo(0, h/2); oscCtx.lineTo(w, h/2);
+            oscCtx.moveTo(w/2, 0); oscCtx.lineTo(w/2, h);
+            oscCtx.stroke();
+
+            // Waveform
+            oscCtx.beginPath();
+            oscCtx.strokeStyle = 'var(--phosphor)';
+            oscCtx.lineWidth = 2;
+            
+            // Amplitude tied to tank energy
+            // Energy = 0.5 * C * V^2, so V proportional to sqrt(Energy)
+            const amplitude = Math.sqrt(physics.tankEnergy) * 20000; 
+            
+            oscCtx.moveTo(0, h/2);
+            
+            // High frequency simulation (we draw a damped sine wave visually)
+            for(let x=0; x<w; x++) {
+                // Add an envelope so it looks like a pulse packet decaying left-to-right
+                const envelope = Math.exp(-x / (w/3));
+                const y = h/2 - (Math.sin(oscPhase + x * 0.5) * amplitude * envelope);
+                oscCtx.lineTo(x, y);
+            }
+            oscCtx.stroke();
+            
+            // Oscillate phase rapidly to simulate high freq RF
+            if (physics.tankEnergy > 0) {
+                oscPhase += 2.0; 
+            }
+        }
+
+
+        // --- Main Loop ---
+        function loop(timestamp) {
+            // Calculate delta time in seconds
+            let dt = (timestamp - physics.lastTime) / 1000;
+            if (dt > 0.1) dt = 0.1; // Cap dt to prevent physics jumps on lag
+            physics.lastTime = timestamp;
+
+            updatePhysics(dt);
+            drawSparkGap();
+            drawOscilloscope();
+
+            requestAnimationFrame(loop);
+        }
+
+        // Start
+        requestAnimationFrame(loop);
+
+    </script>
+</body>
+</html>
