@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stellar Formation Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+            color: #fff;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        /* Custom scrollbar for control panel */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+    </style>
+</head>
+<body>
+
+    <!-- Canvas for rendering -->
+    <canvas id="simCanvas"></canvas>
+
+    <!-- UI Overlay -->
+    <div class="absolute top-4 left-4 glass-panel p-4 rounded-xl shadow-2xl w-80 max-h-[90vh] overflow-y-auto z-10 pointer-events-auto">
+        <h1 class="text-xl font-bold mb-1 text-white">Stellar Genesis</h1>
+        <p class="text-xs text-gray-400 mb-4">N-Body Accretion Simulation</p>
+
+        <div class="space-y-4">
+            <!-- Stats -->
+            <div class="grid grid-cols-2 gap-2 text-sm bg-black/30 p-3 rounded-lg border border-white/5">
+                <div>Bodies: <span id="statBodies" class="font-mono text-blue-400">0</span></div>
+                <div>Years: <span id="statTime" class="font-mono text-green-400">0</span></div>
+                <div class="col-span-2">Largest Mass: <span id="statMass" class="font-mono text-yellow-400">0</span> M⊕</div>
+            </div>
+
+            <!-- Controls -->
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-gray-400 flex justify-between">
+                        <span>Simulation Speed (dt)</span>
+                        <span id="dtVal">0.1</span>
+                    </label>
+                    <input type="range" id="dtSlider" min="0.01" max="0.5" step="0.01" value="0.1" class="w-full accent-blue-500">
+                </div>
+                
+                <div>
+                    <label class="text-xs text-gray-400 flex justify-between">
+                        <span>Gravity Constant (G)</span>
+                        <span id="gVal">0.5</span>
+                    </label>
+                    <input type="range" id="gSlider" min="0.1" max="2.0" step="0.1" value="0.5" class="w-full accent-blue-500">
+                </div>
+
+                <div>
+                    <label class="text-xs text-gray-400 flex justify-between">
+                        <span>Initial Spin</span>
+                        <span id="spinVal">1.2</span>
+                    </label>
+                    <input type="range" id="spinSlider" min="0.5" max="2.0" step="0.1" value="1.2" class="w-full accent-blue-500">
+                </div>
+
+                <div>
+                    <label class="text-xs text-gray-400 flex justify-between">
+                        <span>Gas Friction</span>
+                        <span id="fricVal">0.999</span>
+                    </label>
+                    <input type="range" id="fricSlider" min="0.990" max="1.000" step="0.001" value="0.999" class="w-full accent-blue-500">
+                    <p class="text-[10px] text-gray-500 mt-1">Causes matter to fall inwards and clump</p>
+                </div>
+            </div>
+
+            <hr class="border-white/10">
+
+            <!-- Actions -->
+            <div class="grid grid-cols-2 gap-2">
+                <button id="btnPause" class="bg-blue-600 hover:bg-blue-500 text-white text-sm py-2 rounded transition">Pause</button>
+                <button id="btnReset" class="bg-red-600 hover:bg-red-500 text-white text-sm py-2 rounded transition">Restart Cloud</button>
+            </div>
+            <button id="btnSpawnDisk" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm py-2 rounded transition">Inject Gas Cloud</button>
+
+            <!-- Legend -->
+            <div class="mt-4 pt-4 border-t border-white/10">
+                <h3 class="text-xs font-semibold text-gray-300 mb-2">Evolution Stages</h3>
+                <ul class="text-xs space-y-2">
+                    <li class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-blue-300 opacity-50 shadow-[0_0_5px_rgba(147,197,253,0.5)]"></span> Nebula Gas / Dust</li>
+                    <li class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-gray-400"></span> Asteroids / Protoplanets</li>
+                    <li class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-orange-400"></span> Gas Giants</li>
+                    <li class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-yellow-100 shadow-[0_0_10px_rgba(255,255,200,1)]"></span> Ignited Star</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * Physical constants and simulation parameters
+         */
+        const Config = {
+            G: 0.5,                  // Gravitational Constant
+            SOFTENING: 400,          // Prevents infinite gravity near zero distance
+            DT: 0.1,                 // Time step per frame
+            FRICTION: 0.999,         // Velocity retention per frame (simulates gas drag)
+            SPIN_MULTIPLIER: 1.2,    // Multiplier for initial orbital velocity
+            MAX_TRAIL_LENGTH: 40,    // How long canvas trails persist
+            
+            // Mass thresholds for visual categorization
+            MASS_ASTEROID: 5,
+            MASS_PLANET: 50,
+            MASS_GAS_GIANT: 250,
+            MASS_STAR: 1500,
+
+            // Initial cloud generation
+            INITIAL_PARTICLES: 600,
+            CLOUD_RADIUS: Math.min(window.innerWidth, window.innerHeight) * 0.45,
+            BASE_MASS: 1,
+            CENTER_MASS_SEED: 0      // Set to 0: completely organic star formation
+        };
+
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); // Optimize
+        let width, height;
+
+        let bodies = [];
+        let simulationTime = 0;
+        let isPaused = false;
+        let animationFrameId;
+
+        // UI Elements
+        const uiBodies = document.getElementById('statBodies');
+        const uiTime = document.getElementById('statTime');
+        const uiMass = document.getElementById('statMass');
+        const uiDt = document.getElementById('dtSlider');
+        const uiG = document.getElementById('gSlider');
+        const uiSpin = document.getElementById('spinSlider');
+        const uiFric = document.getElementById('fricSlider');
+
+        class Body {
+            constructor(x, y, vx, vy, mass) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.mass = mass;
+                this.updateProperties();
+                this.dead = false; // Flag for deletion after merge
+                
+                // For rendering trails smoothly
+                this.lastX = x;
+                this.lastY = y;
+            }
+
+            // Recalculate radius and visual properties based on mass
+            updateProperties() {
+                // Density increases slightly as mass increases (core compression)
+                // Radius = cube_root(Volume). Volume = Mass / Density.
+                let density = 1.0;
+                if (this.mass > Config.MASS_PLANET) density = 1.5;
+                if (this.mass > Config.MASS_GAS_GIANT) density = 0.8; // Gas giants are less dense
+                if (this.mass > Config.MASS_STAR) density = 2.0;      // Star core is very dense
+                
+                // Base calculation for radius
+                this.radius = Math.max(1.5, Math.pow((this.mass / density) * 2, 1/3));
+
+                // Determine color based on mass classification
+                if (this.mass >= Config.MASS_STAR) {
+                    this.type = 'star';
+                    this.color = '#FFFACD'; // LemonChiffon (bright star)
+                    this.glowColor = 'rgba(255, 230, 150, 0.8)';
+                } else if (this.mass >= Config.MASS_GAS_GIANT) {
+                    this.type = 'gas_giant';
+                    this.color = '#FDBA74'; // Orange-ish
+                    this.glowColor = 'rgba(253, 186, 116, 0.4)';
+                } else if (this.mass >= Config.MASS_PLANET) {
+                    this.type = 'planet';
+                    // Give planets random earthy colors based on initial arbitrary ID or position
+                    const hue = Math.floor(Math.abs(this.x + this.y) % 360);
+                    this.color = `hsl(${hue}, 40%, 50%)`;
+                    this.glowColor = null;
+                } else if (this.mass >= Config.MASS_ASTEROID) {
+                    this.type = 'asteroid';
+                    this.color = '#9CA3AF'; // Gray
+                    this.glowColor = null;
+                } else {
+                    this.type = 'gas';
+                    this.color = '#93C5FD'; // Light blue
+                    this.glowColor = 'rgba(147, 197, 253, 0.2)';
+                }
+            }
+
+            // Inelastic collision merger
+            merge(other) {
+                // Conservation of momentum: (m1v1 + m2v2) / (m1 + m2)
+                const totalMass = this.mass + other.mass;
+                this.vx = (this.vx * this.mass + other.vx * other.mass) / totalMass;
+                this.vy = (this.vy * this.mass + other.vy * other.mass) / totalMass;
+                
+                // Center of mass for new position
+                this.x = (this.x * this.mass + other.x * other.mass) / totalMass;
+                this.y = (this.y * this.mass + other.y * other.mass) / totalMass;
+                
+                this.mass = totalMass;
+                this.updateProperties();
+                other.dead = true;
+            }
+
+            draw(ctx, offsetX, offsetY) {
+                const drawX = this.x - offsetX;
+                const drawY = this.y - offsetY;
+                
+                // Skip if way off screen
+                if (drawX < -100 || drawX > width + 100 || drawY < -100 || drawY > height + 100) return;
+
+                ctx.beginPath();
+                
+                // Draw glow for massive objects or diffuse gas
+                if (this.glowColor) {
+                    const glowRadius = this.type === 'star' ? this.radius * 4 : 
+                                     this.type === 'gas_giant' ? this.radius * 2 : 
+                                     this.radius * 3; // gas
+                    
+                    const grad = ctx.createRadialGradient(drawX, drawY, this.radius * 0.5, drawX, drawY, glowRadius);
+                    grad.addColorStop(0, this.glowColor);
+                    grad.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.fillStyle = grad;
+                    ctx.arc(drawX, drawY, glowRadius, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                }
+
+                ctx.fillStyle = this.color;
+                ctx.arc(drawX, drawY, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Draw trails lines connecting last frame to this frame
+                if (this.type !== 'gas') {
+                    ctx.beginPath();
+                    ctx.strokeStyle = this.color;
+                    ctx.lineWidth = Math.max(0.5, this.radius * 0.3);
+                    ctx.lineCap = "round";
+                    ctx.moveTo(this.lastX - offsetX, this.lastY - offsetY);
+                    ctx.lineTo(drawX, drawY);
+                    ctx.stroke();
+                }
+
+                this.lastX = this.x;
+                this.lastY = this.y;
+            }
+        }
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+
+        function initSimulation() {
+            bodies = [];
+            simulationTime = 0;
+            
+            const cx = 0; // Using 0,0 as conceptual center for math simplicity
+            const cy = 0;
+
+            // Total mass of the cloud used to calculate initial orbital velocities
+            const totalCloudMass = Config.INITIAL_PARTICLES * Config.BASE_MASS;
+
+            for (let i = 0; i < Config.INITIAL_PARTICLES; i++) {
+                // Random position within a disk
+                const r = Math.random() * Config.CLOUD_RADIUS;
+                const theta = Math.random() * Math.PI * 2;
+                
+                const x = cx + r * Math.cos(theta);
+                const y = cy + r * Math.sin(theta);
+
+                // Organic Initial Orbital Velocity
+                // Calculates velocity based on the mass of the gas enclosed within this particle's radius.
+                // For a uniform 2D disk, enclosed mass is proportional to r^2.
+                const enclosedMass = totalCloudMass * Math.pow(r / Config.CLOUD_RADIUS, 2);
+                const orbitalVelocityMag = Math.sqrt((Config.G * enclosedMass) / (r + 1)) * Config.SPIN_MULTIPLIER;
+                
+                // Tangent vector (rotation)
+                let vx = -Math.sin(theta) * orbitalVelocityMag;
+                let vy = Math.cos(theta) * orbitalVelocityMag;
+
+                // Add random noise to velocity to simulate chaotic gas
+                vx += (Math.random() - 0.5) * orbitalVelocityMag * 0.3;
+                vy += (Math.random() - 0.5) * orbitalVelocityMag * 0.3;
+
+                // Slightly varied starting mass
+                const mass = Config.BASE_MASS * (0.5 + Math.random());
+
+                bodies.push(new Body(x, y, vx, vy, mass));
+            }
+        }
+
+        function injectGasCloud() {
+            // Get center of mass of current system to target the injection
+            let sysM = 0, sysX = 0, sysY = 0;
+            for (let b of bodies) {
+                sysM += b.mass;
+                sysX += b.x * b.mass;
+                sysY += b.y * b.mass;
+            }
+            if (sysM > 0) { sysX /= sysM; sysY /= sysM; }
+
+            const injectCount = 200;
+            const outerRadius = Config.CLOUD_RADIUS * 1.5;
+            
+            for (let i = 0; i < injectCount; i++) {
+                const r = outerRadius * (0.8 + Math.random() * 0.4);
+                const theta = Math.random() * Math.PI * 2;
+                const x = sysX + r * Math.cos(theta);
+                const y = sysY + r * Math.sin(theta);
+
+                // Approximated velocity for outer disk
+                const velMag = Math.sqrt((Config.G * sysM) / r) * 0.9 * Config.SPIN_MULTIPLIER; 
+                let vx = -Math.sin(theta) * velMag + (Math.random() - 0.5);
+                let vy = Math.cos(theta) * velMag + (Math.random() - 0.5);
+
+                bodies.push(new Body(x, y, vx, vy, Config.BASE_MASS * 0.5));
+            }
+        }
+
+        function updatePhysics() {
+            if (isPaused) return;
+
+            const n = bodies.length;
+            
+            // Apply gravity (O(N^2) complexity - fine for < 1000 bodies in JS)
+            for (let i = 0; i < n; i++) {
+                const b1 = bodies[i];
+                if (b1.dead) continue;
+
+                // Apply gas friction (causes orbital decay and clumping)
+                // We scale friction inversely by mass so large bodies (planets) maintain their orbits
+                // while small dust/gas particles experience drag and spiral inward.
+                const dragLoss = 1 - Config.FRICTION;
+                const effectiveDrag = 1 - (dragLoss * (Config.BASE_MASS / b1.mass));
+                b1.vx *= effectiveDrag;
+                b1.vy *= effectiveDrag;
+
+                for (let j = i + 1; j < n; j++) {
+                    const b2 = bodies[j];
+                    if (b2.dead) continue;
+
+                    const dx = b2.x - b1.x;
+                    const dy = b2.y - b1.y;
+                    const distSq = dx*dx + dy*dy;
+                    const dist = Math.sqrt(distSq);
+
+                    // Collision / Accretion Check
+                    if (dist < b1.radius + b2.radius) {
+                        // Merge the smaller into the larger
+                        if (b1.mass > b2.mass) {
+                            b1.merge(b2);
+                        } else {
+                            b2.merge(b1);
+                        }
+                        continue; // skip gravity calculation for this pair since they merged
+                    }
+
+                    // Gravity calculation
+                    const force = (Config.G * b1.mass * b2.mass) / (distSq + Config.SOFTENING);
+                    const fx = (force * dx) / dist;
+                    const fy = (force * dy) / dist;
+
+                    b1.vx += (fx / b1.mass) * Config.DT;
+                    b1.vy += (fy / b1.mass) * Config.DT;
+                    b2.vx -= (fx / b2.mass) * Config.DT;
+                    b2.vy -= (fy / b2.mass) * Config.DT;
+                }
+            }
+
+            // Update positions & clear dead bodies
+            let maxMass = 0;
+            for (let i = bodies.length - 1; i >= 0; i--) {
+                const b = bodies[i];
+                if (b.dead) {
+                    bodies.splice(i, 1);
+                } else {
+                    b.x += b.vx * Config.DT;
+                    b.y += b.vy * Config.DT;
+                    if (b.mass > maxMass) maxMass = b.mass;
+                }
+            }
+
+            simulationTime += Config.DT;
+            updateUIStats(maxMass);
+        }
+
+        function draw() {
+            // Draw background with slight transparency to create motion trails
+            ctx.fillStyle = `rgba(0, 0, 0, ${1.0 / Config.MAX_TRAIL_LENGTH})`;
+            ctx.fillRect(0, 0, width, height);
+
+            // Calculate Center of Mass to track the system with the camera
+            let cmX = 0, cmY = 0, totalMass = 0;
+            for (let b of bodies) {
+                cmX += b.x * b.mass;
+                cmY += b.y * b.mass;
+                totalMass += b.mass;
+            }
+
+            let offsetX = 0, offsetY = 0;
+            if (totalMass > 0) {
+                cmX /= totalMass;
+                cmY /= totalMass;
+                // Center camera on center of mass
+                offsetX = cmX - width / 2;
+                offsetY = cmY - height / 2;
+            } else {
+                offsetX = -width/2;
+                offsetY = -height/2;
+            }
+
+            // Draw all bodies
+            for (let b of bodies) {
+                b.draw(ctx, offsetX, offsetY);
+            }
+        }
+
+        function loop() {
+            updatePhysics();
+            draw();
+            animationFrameId = requestAnimationFrame(loop);
+        }
+
+        // --- UI and Interaction Logic ---
+
+        function updateUIStats(maxMass) {
+            if (Math.floor(simulationTime) % 5 === 0) {
+                uiBodies.innerText = bodies.length;
+                uiTime.innerText = Math.floor(simulationTime * 100).toLocaleString(); // Scale time for narrative
+                uiMass.innerText = Math.floor(maxMass);
+            }
+        }
+
+        // Listeners for UI Controls
+        document.getElementById('btnPause').addEventListener('click', (e) => {
+            isPaused = !isPaused;
+            e.target.innerText = isPaused ? "Resume" : "Pause";
+            e.target.classList.toggle('bg-blue-600');
+            e.target.classList.toggle('bg-yellow-600');
+        });
+
+        document.getElementById('btnReset').addEventListener('click', () => {
+            // Clear screen completely
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0, 0, width, height);
+            initSimulation();
+        });
+
+        document.getElementById('btnSpawnDisk').addEventListener('click', () => {
+            injectGasCloud();
+        });
+
+        uiDt.addEventListener('input', (e) => {
+            Config.DT = parseFloat(e.target.value);
+            document.getElementById('dtVal').innerText = Config.DT.toFixed(2);
+        });
+
+        uiG.addEventListener('input', (e) => {
+            Config.G = parseFloat(e.target.value);
+            document.getElementById('gVal').innerText = Config.G.toFixed(1);
+        });
+
+        uiSpin.addEventListener('input', (e) => {
+            Config.SPIN_MULTIPLIER = parseFloat(e.target.value);
+            document.getElementById('spinVal').innerText = Config.SPIN_MULTIPLIER.toFixed(1);
+        });
+
+        uiFric.addEventListener('input', (e) => {
+            Config.FRICTION = parseFloat(e.target.value);
+            document.getElementById('fricVal').innerText = Config.FRICTION.toFixed(3);
+        });
+
+        // Interactive Canvas: Click to add a large mass (rogue planet/star)
+        canvas.addEventListener('mousedown', (e) => {
+            // Calculate center of mass to convert screen coordinates to world coordinates
+            let cmX = 0, cmY = 0, totalMass = 0;
+            for (let b of bodies) {
+                cmX += b.x * b.mass;
+                cmY += b.y * b.mass;
+                totalMass += b.mass;
+            }
+            if (totalMass > 0) {
+                cmX /= totalMass;
+                cmY /= totalMass;
+            }
+
+            const worldX = e.clientX + (cmX - width / 2);
+            const worldY = e.clientY + (cmY - height / 2);
+
+            // Add a massive rogue body
+            const rogue = new Body(worldX, worldY, 0, 0, Config.MASS_PLANET * 2);
+            bodies.push(rogue);
+        });
+
+        // Window resize handling
+        window.addEventListener('resize', () => {
+            resize();
+            // Optional: Draw black immediately to avoid tearing
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0, 0, width, height);
+        });
+
+        // Initialize and start
+        resize();
+        initSimulation();
+        // Paint black initially
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, width, height);
+        loop();
+
+    </script>
+</body>
+</html>
