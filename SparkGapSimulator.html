@@ -437,6 +437,12 @@
         // --- Audio Context (Web Audio API) ---
         let audioCtx;
         let masterGain;
+        
+        // Hollywood Hum Variables
+        let humGain;
+        let humOscBase;
+        let humOscBuzz;
+        let humFilter;
 
         function initAudio() {
             if(audioCtx) return;
@@ -445,6 +451,32 @@
             masterGain = audioCtx.createGain();
             masterGain.gain.value = 0.5;
             masterGain.connect(audioCtx.destination);
+            
+            // Setup Hollywood continuous hum
+            humGain = audioCtx.createGain();
+            humGain.gain.value = 0; // Starts silent
+            humGain.connect(masterGain);
+
+            // Deep 60Hz US mains hum
+            humOscBase = audioCtx.createOscillator();
+            humOscBase.type = 'sine';
+            humOscBase.frequency.value = 60;
+            humOscBase.connect(humGain);
+
+            // 120Hz Sawtooth for the angry electrical 'buzz'
+            humOscBuzz = audioCtx.createOscillator();
+            humOscBuzz.type = 'sawtooth';
+            humOscBuzz.frequency.value = 120;
+            
+            // Dynamic lowpass filter to make the buzz brighter at higher voltages
+            humFilter = audioCtx.createBiquadFilter();
+            humFilter.type = 'lowpass';
+            humFilter.frequency.value = 200;
+            humOscBuzz.connect(humFilter);
+            humFilter.connect(humGain);
+
+            humOscBase.start();
+            humOscBuzz.start();
         }
 
         function playZapSound(intensity) {
@@ -592,6 +624,23 @@
                 // If it's sparking, cap is effectively shorted momentarily
                 if (physics.sparkFramesRemaining <= 0) {
                      physics.capVoltage = targetV - (targetV - physics.capVoltage) * Math.exp(-dt_sec / tau);
+                }
+            }
+            
+            // Update Hollywood Hum Sound dynamically based on charge
+            if (audioCtx && humGain) {
+                if (physics.powerOn) {
+                    const vRatio = Math.max(0, physics.capVoltage / 50000);
+                    // Base hum starts low, rises aggressively as cap nears 50kV
+                    const targetVol = Math.pow(vRatio, 2) * 1.5 + (physics.supplyVoltage > 0 ? 0.05 : 0);
+                    humGain.gain.setTargetAtTime(targetVol, audioCtx.currentTime, 0.05);
+                    
+                    // The "angry electrical buzz" opens up as voltage rises
+                    const targetFreq = 200 + (Math.pow(vRatio, 1.5) * 2500);
+                    humFilter.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.05);
+                } else {
+                    // Power off, fade out quickly
+                    humGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
                 }
             }
 
