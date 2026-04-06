@@ -117,7 +117,6 @@
             DT: 0.1,                 // Time step per frame
             FRICTION: 0.999,         // Velocity retention per frame (simulates gas drag)
             SPIN_MULTIPLIER: 1.2,    // Multiplier for initial orbital velocity
-            MAX_TRAIL_LENGTH: 40,    // How long canvas trails persist
             
             // Mass thresholds for visual categorization
             MASS_ASTEROID: 5,
@@ -137,6 +136,8 @@
         let width, height;
 
         let bodies = [];
+        let shockwaves = []; // To store stellar ignition animations
+        let cameraShake = 0; // Intensity of screen shake
         let simulationTime = 0;
         let isPaused = false;
         let animationFrameId;
@@ -159,10 +160,6 @@
                 this.mass = mass;
                 this.updateProperties();
                 this.dead = false; // Flag for deletion after merge
-                
-                // For rendering trails smoothly
-                this.lastX = x;
-                this.lastY = y;
             }
 
             // Recalculate radius and visual properties based on mass
@@ -178,10 +175,17 @@
                 this.radius = Math.max(1.5, Math.pow((this.mass / density) * 2, 1/3));
 
                 // Determine color based on mass classification
+                const oldType = this.type;
+                
                 if (this.mass >= Config.MASS_STAR) {
                     this.type = 'star';
                     this.color = '#FFFACD'; // LemonChiffon (bright star)
                     this.glowColor = 'rgba(255, 230, 150, 0.8)';
+                    
+                    // If it just transitioned into a star, trigger the ignition animation
+                    if (oldType && oldType !== 'star') {
+                        this.ignite();
+                    }
                 } else if (this.mass >= Config.MASS_GAS_GIANT) {
                     this.type = 'gas_giant';
                     this.color = '#FDBA74'; // Orange-ish
@@ -201,6 +205,32 @@
                     this.color = '#93C5FD'; // Light blue
                     this.glowColor = 'rgba(147, 197, 253, 0.2)';
                 }
+            }
+
+            // Trigger stellar ignition shockwave
+            ignite() {
+                // Initialize a complex shockwave with particles and rays
+                shockwaves.push({
+                    x: this.x,
+                    y: this.y,
+                    radius: this.radius,
+                    energy: 1.0, // Fades from 1 to 0
+                    rays: Array.from({length: 16}, () => ({
+                        angle: Math.random() * Math.PI * 2,
+                        lengthMultiplier: 0.5 + Math.random() * 1.5,
+                        width: Math.random() * 4 + 1
+                    })),
+                    ejecta: Array.from({length: 80}, () => ({
+                        angle: Math.random() * Math.PI * 2,
+                        speed: 800 + Math.random() * 1500, // Very fast!
+                        dist: this.radius,
+                        size: Math.random() * 3 + 1,
+                        life: 1.0
+                    }))
+                });
+                
+                // Trigger massive camera shake
+                cameraShake = 25;
             }
 
             // Inelastic collision merger
@@ -223,16 +253,18 @@
                 const drawX = this.x - offsetX;
                 const drawY = this.y - offsetY;
                 
-                // Skip if way off screen
-                if (drawX < -100 || drawX > width + 100 || drawY < -100 || drawY > height + 100) return;
+                // Skip if way off screen or if position is invalid (NaN/Infinity)
+                if (!isFinite(drawX) || !isFinite(drawY) || 
+                    drawX < -100 || drawX > width + 100 || 
+                    drawY < -100 || drawY > height + 100) return;
 
                 ctx.beginPath();
                 
                 // Draw glow for massive objects or diffuse gas
                 if (this.glowColor) {
-                    const glowRadius = this.type === 'star' ? this.radius * 4 : 
+                    const glowRadius = Math.max(0.1, this.type === 'star' ? this.radius * 4 : 
                                      this.type === 'gas_giant' ? this.radius * 2 : 
-                                     this.radius * 3; // gas
+                                     this.radius * 3); // gas
                     
                     const grad = ctx.createRadialGradient(drawX, drawY, this.radius * 0.5, drawX, drawY, glowRadius);
                     grad.addColorStop(0, this.glowColor);
@@ -244,22 +276,8 @@
                 }
 
                 ctx.fillStyle = this.color;
-                ctx.arc(drawX, drawY, this.radius, 0, Math.PI * 2);
+                ctx.arc(drawX, drawY, Math.max(0.1, this.radius), 0, Math.PI * 2);
                 ctx.fill();
-
-                // Draw trails lines connecting last frame to this frame
-                if (this.type !== 'gas') {
-                    ctx.beginPath();
-                    ctx.strokeStyle = this.color;
-                    ctx.lineWidth = Math.max(0.5, this.radius * 0.3);
-                    ctx.lineCap = "round";
-                    ctx.moveTo(this.lastX - offsetX, this.lastY - offsetY);
-                    ctx.lineTo(drawX, drawY);
-                    ctx.stroke();
-                }
-
-                this.lastX = this.x;
-                this.lastY = this.y;
             }
         }
 
@@ -272,6 +290,7 @@
 
         function initSimulation() {
             bodies = [];
+            shockwaves = [];
             simulationTime = 0;
             
             const cx = 0; // Using 0,0 as conceptual center for math simplicity
@@ -329,7 +348,7 @@
                 const y = sysY + r * Math.sin(theta);
 
                 // Approximated velocity for outer disk
-                const velMag = Math.sqrt((Config.G * sysM) / r) * 0.9 * Config.SPIN_MULTIPLIER; 
+                const velMag = Math.sqrt((Config.G * sysM) / Math.max(1, r)) * 0.9 * Config.SPIN_MULTIPLIER; 
                 let vx = -Math.sin(theta) * velMag + (Math.random() - 0.5);
                 let vy = Math.cos(theta) * velMag + (Math.random() - 0.5);
 
@@ -342,18 +361,55 @@
 
             const n = bodies.length;
             
+            // Calculate System Center of Mass and Mass Distribution for accurate orbital drag
+            let cmX = 0, cmY = 0, sysMass = 0, maxBodyMass = 0;
+            for (let b of bodies) {
+                if (b.dead) continue;
+                cmX += b.x * b.mass;
+                cmY += b.y * b.mass;
+                sysMass += b.mass;
+                if (b.mass > maxBodyMass) maxBodyMass = b.mass;
+            }
+            if (sysMass > 0) { cmX /= sysMass; cmY /= sysMass; }
+
+            // Drag scales with DT so simulation speed changes don't alter physics
+            const dragLoss = 1.0 - Config.FRICTION;
+            const dragStrength = dragLoss * 20.0 * Config.DT;
+
             // Apply gravity (O(N^2) complexity - fine for < 1000 bodies in JS)
             for (let i = 0; i < n; i++) {
                 const b1 = bodies[i];
                 if (b1.dead) continue;
 
-                // Apply gas friction (causes orbital decay and clumping)
-                // We scale friction inversely by mass so large bodies (planets) maintain their orbits
-                // while small dust/gas particles experience drag and spiral inward.
-                const dragLoss = 1 - Config.FRICTION;
-                const effectiveDrag = 1 - (dragLoss * (Config.BASE_MASS / b1.mass));
-                b1.vx *= effectiveDrag;
-                b1.vy *= effectiveDrag;
+                // Orbital Gas Drag (Circularizes orbits and causes slow decay)
+                // Only applied to light gas/dust particles. Large bodies maintain perfect inertia!
+                if (b1.mass <= Config.MASS_ASTEROID && dragStrength > 0) {
+                    const rx = b1.x - cmX;
+                    const ry = b1.y - cmY;
+                    const rSq = rx*rx + ry*ry;
+                    
+                    if (rSq > 10) {
+                        const r = Math.sqrt(rSq);
+                        
+                        // Preserve current angular momentum direction
+                        const lz = rx * b1.vy - ry * b1.vx;
+                        const dir = lz >= 0 ? 1 : -1;
+                        
+                        const tx = (-ry / r) * dir;
+                        const ty = (rx / r) * dir;
+                        
+                        // Approximate enclosed mass (transitions from uniform disk to central star)
+                        const remainingMass = sysMass - maxBodyMass;
+                        const radiusRatio = Math.min(1.0, r / Config.CLOUD_RADIUS);
+                        const enclosedMass = maxBodyMass + remainingMass * (radiusRatio * radiusRatio);
+                        
+                        // 0.98 multiplier makes gas slightly sub-Keplerian, forcing an inward spiral
+                        const vIdealMag = Math.sqrt((Config.G * enclosedMass) / (r + 10)) * 0.98;
+                        
+                        b1.vx += ((tx * vIdealMag) - b1.vx) * dragStrength;
+                        b1.vy += ((ty * vIdealMag) - b1.vy) * dragStrength;
+                    }
+                }
 
                 for (let j = i + 1; j < n; j++) {
                     const b2 = bodies[j];
@@ -362,17 +418,21 @@
                     const dx = b2.x - b1.x;
                     const dy = b2.y - b1.y;
                     const distSq = dx*dx + dy*dy;
-                    const dist = Math.sqrt(distSq);
+                    // Strict limit to prevent division by zero causing NaN calculations!
+                    const dist = Math.max(0.01, Math.sqrt(distSq));
 
                     // Collision / Accretion Check
                     if (dist < b1.radius + b2.radius) {
                         // Merge the smaller into the larger
                         if (b1.mass > b2.mass) {
                             b1.merge(b2);
+                            continue; // b1 survives, we continue the inner loop to test against b3, b4...
                         } else {
                             b2.merge(b1);
+                            // CRITICAL FIX: b1 is now dead! We must break out of the inner loop immediately 
+                            // to prevent it from ghost-interacting with remaining particles!
+                            break; 
                         }
-                        continue; // skip gravity calculation for this pair since they merged
                     }
 
                     // Gravity calculation
@@ -383,7 +443,7 @@
                     b1.vx += (fx / b1.mass) * Config.DT;
                     b1.vy += (fy / b1.mass) * Config.DT;
                     b2.vx -= (fx / b2.mass) * Config.DT;
-                    b2.vy -= (fy / b2.mass) * Config.DT;
+                    b2.vx -= (fy / b2.mass) * Config.DT;
                 }
             }
 
@@ -394,10 +454,59 @@
                 if (b.dead) {
                     bodies.splice(i, 1);
                 } else {
+                    // Velocity clamp to prevent physics explosion cascading into NaN
+                    if (b.vx > 20000) b.vx = 20000;
+                    if (b.vx < -20000) b.vx = -20000;
+                    if (b.vy > 20000) b.vy = 20000;
+                    if (b.vy < -20000) b.vy = -20000;
+
                     b.x += b.vx * Config.DT;
                     b.y += b.vy * Config.DT;
                     if (b.mass > maxMass) maxMass = b.mass;
                 }
+            }
+
+            // Update Shockwaves (Solar Wind Ignition Effect)
+            for (let i = shockwaves.length - 1; i >= 0; i--) {
+                let sw = shockwaves[i];
+                const expansionSpeed = 1500; // Pixels per simulation second
+                
+                sw.radius += expansionSpeed * Config.DT;
+                sw.energy -= 0.3 * Config.DT; // Slower fade for dramatic effect
+
+                // Update ejecta particles
+                for (let p of sw.ejecta) {
+                    p.dist += p.speed * Config.DT;
+                    p.life -= 0.4 * Config.DT;
+                }
+
+                if (sw.energy > 0) {
+                    // Apply solar wind outward force to light objects (Clearing the nebula)
+                    for (let b of bodies) {
+                        if (b.dead || b.type === 'star' || b.type === 'gas_giant') continue;
+                        
+                        const dx = b.x - sw.x;
+                        const dy = b.y - sw.y;
+                        const distSq = dx*dx + dy*dy;
+                        const dist = Math.max(0.1, Math.sqrt(distSq)); // Division by Zero Guard
+
+                        // Affect bodies as the wave passes them, creating a cleared cavity
+                        if (Math.abs(dist - sw.radius) < expansionSpeed * Config.DT * 2.0 || dist < sw.radius) {
+                            // Exponentially weaker on heavier objects. Immense on dust.
+                            const force = (sw.energy * 800) / Math.pow(b.mass, 1.5); 
+                            b.vx += (dx / dist) * force;
+                            b.vy += (dy / dist) * force;
+                        }
+                    }
+                } else {
+                    shockwaves.splice(i, 1); // Remove when faded
+                }
+            }
+            
+            // Decay camera shake
+            if (cameraShake > 0) {
+                cameraShake -= 15 * Config.DT;
+                if (cameraShake < 0) cameraShake = 0;
             }
 
             simulationTime += Config.DT;
@@ -405,8 +514,8 @@
         }
 
         function draw() {
-            // Draw background with slight transparency to create motion trails
-            ctx.fillStyle = `rgba(0, 0, 0, ${1.0 / Config.MAX_TRAIL_LENGTH})`;
+            // Draw opaque background to remove motion trails
+            ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, width, height);
 
             // Calculate Center of Mass to track the system with the camera
@@ -429,15 +538,109 @@
                 offsetY = -height/2;
             }
 
+            // Apply Camera Shake
+            if (cameraShake > 0) {
+                offsetX += (Math.random() - 0.5) * cameraShake * 2;
+                offsetY += (Math.random() - 0.5) * cameraShake * 2;
+            }
+
             // Draw all bodies
             for (let b of bodies) {
                 b.draw(ctx, offsetX, offsetY);
             }
+
+            // Draw Shockwaves
+            for (let sw of shockwaves) {
+                if (sw.energy <= 0) continue;
+                
+                const drawX = sw.x - offsetX;
+                const drawY = sw.y - offsetY;
+
+                // Guard against canvas API crashes
+                if (!isFinite(drawX) || !isFinite(drawY)) continue;
+
+                ctx.save();
+                ctx.globalCompositeOperation = "screen";
+
+                // 1. Draw intense light rays piercing the void
+                for (let ray of sw.rays) {
+                    const rayLen = Math.max(0.1, sw.radius * ray.lengthMultiplier * 1.5);
+                    const rayGrad = ctx.createLinearGradient(
+                        drawX, drawY, 
+                        drawX + Math.cos(ray.angle) * rayLen, 
+                        drawY + Math.sin(ray.angle) * rayLen
+                    );
+                    rayGrad.addColorStop(0, `rgba(255, 255, 255, ${sw.energy * 0.8})`);
+                    rayGrad.addColorStop(1, 'rgba(255, 230, 150, 0)');
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(drawX, drawY);
+                    ctx.lineTo(drawX + Math.cos(ray.angle) * rayLen, drawY + Math.sin(ray.angle) * rayLen);
+                    ctx.strokeStyle = rayGrad;
+                    ctx.lineWidth = ray.width * sw.energy;
+                    ctx.stroke();
+                }
+
+                // 2. Draw Ejecta Particles (Coronal Mass Ejection)
+                for (let p of sw.ejecta) {
+                    if (p.life <= 0) continue;
+                    const px = drawX + Math.cos(p.angle) * p.dist;
+                    const py = drawY + Math.sin(p.angle) * p.dist;
+                    
+                    ctx.beginPath();
+                    ctx.arc(px, py, Math.max(0.1, p.size * p.life), 0, Math.PI * 2);
+                    // Shifts from bright white to hot orange as it cools/dies
+                    ctx.fillStyle = `rgba(255, ${Math.floor(200 * p.life)}, ${Math.floor(100 * p.life)}, ${p.life})`;
+                    ctx.fill();
+                    
+                    // Small trail
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(px - Math.cos(p.angle) * p.dist * 0.1, py - Math.sin(p.angle) * p.dist * 0.1);
+                    ctx.strokeStyle = `rgba(255, 150, 50, ${p.life * 0.5})`;
+                    ctx.lineWidth = Math.max(0.1, p.size);
+                    ctx.stroke();
+                }
+
+                // 3. The expanding primary shockwave boundary
+                ctx.beginPath();
+                ctx.arc(drawX, drawY, Math.max(0.1, sw.radius), 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(200, 230, 255, ${sw.energy * 0.8})`;
+                ctx.lineWidth = Math.max(1, sw.energy * 8);
+                ctx.stroke();
+
+                // 4. Secondary inner ion shockwave (slightly delayed)
+                if (sw.radius > 50) {
+                    ctx.beginPath();
+                    ctx.arc(drawX, drawY, Math.max(0.1, sw.radius * 0.85), 0, Math.PI * 2);
+                    ctx.strokeStyle = `rgba(255, 200, 100, ${sw.energy * 0.5})`;
+                    ctx.lineWidth = Math.max(1, sw.energy * 4);
+                    ctx.stroke();
+                }
+
+                // 5. The central blinding bloom (Core flash)
+                const bloomRadius = Math.max(0.1, sw.radius * 0.6);
+                const grad = ctx.createRadialGradient(drawX, drawY, 0, drawX, drawY, bloomRadius);
+                grad.addColorStop(0, `rgba(255, 255, 255, ${sw.energy})`);
+                grad.addColorStop(0.2, `rgba(255, 250, 200, ${sw.energy * 0.8})`);
+                grad.addColorStop(1, 'rgba(255, 200, 100, 0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(drawX, drawY, bloomRadius, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+            }
         }
 
         function loop() {
-            updatePhysics();
-            draw();
+            // Added try-catch to ensure the loop is fault-tolerant and survives math/canvas errors
+            try {
+                updatePhysics();
+                draw();
+            } catch (e) {
+                console.error("Simulation Error Caught:", e);
+            }
             animationFrameId = requestAnimationFrame(loop);
         }
 
