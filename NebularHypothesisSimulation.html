@@ -62,25 +62,25 @@
                 <div>
                     <label class="text-xs text-gray-400 flex justify-between">
                         <span>Gravity Constant (G)</span>
-                        <span id="gVal">0.5</span>
+                        <span id="gVal">0.8</span>
                     </label>
-                    <input type="range" id="gSlider" min="0.1" max="2.0" step="0.1" value="0.5" class="w-full accent-blue-500">
+                    <input type="range" id="gSlider" min="0.1" max="2.0" step="0.1" value="0.8" class="w-full accent-blue-500">
                 </div>
 
                 <div>
                     <label class="text-xs text-gray-400 flex justify-between">
                         <span>Initial Spin</span>
-                        <span id="spinVal">1.2</span>
+                        <span id="spinVal">0.98</span>
                     </label>
-                    <input type="range" id="spinSlider" min="0.5" max="2.0" step="0.1" value="1.2" class="w-full accent-blue-500">
+                    <input type="range" id="spinSlider" min="0.5" max="2.0" step="0.01" value="0.98" class="w-full accent-blue-500">
                 </div>
 
                 <div>
                     <label class="text-xs text-gray-400 flex justify-between">
                         <span>Gas Friction</span>
-                        <span id="fricVal">0.999</span>
+                        <span id="fricVal">0.995</span>
                     </label>
-                    <input type="range" id="fricSlider" min="0.990" max="1.000" step="0.001" value="0.999" class="w-full accent-blue-500">
+                    <input type="range" id="fricSlider" min="0.990" max="1.000" step="0.001" value="0.995" class="w-full accent-blue-500">
                     <p class="text-[10px] text-gray-500 mt-1">Causes matter to fall inwards and clump</p>
                 </div>
             </div>
@@ -112,22 +112,22 @@
          * Physical constants and simulation parameters
          */
         const Config = {
-            G: 0.5,                  // Gravitational Constant
-            SOFTENING: 400,          // Prevents infinite gravity near zero distance
+            G: 0.8,                  // Increased gravity for more active accretion
+            SOFTENING: 15,           // Very low softening allows rapid local clumping for planets
             DT: 0.1,                 // Time step per frame
-            FRICTION: 0.999,         // Velocity retention per frame (simulates gas drag)
-            SPIN_MULTIPLIER: 1.2,    // Multiplier for initial orbital velocity
+            FRICTION: 0.995,         // Drag to help gas spiral in
+            SPIN_MULTIPLIER: 0.98,   // High stable spin gives the outer disk time to form planets
             
             // Mass thresholds for visual categorization
-            MASS_ASTEROID: 5,
-            MASS_PLANET: 50,
-            MASS_GAS_GIANT: 250,
-            MASS_STAR: 1500,
+            MASS_ASTEROID: 4,
+            MASS_PLANET: 15,         // Lowered threshold so planets form and decouple easier
+            MASS_GAS_GIANT: 80,
+            MASS_STAR: 400,          // Star requires ~33% of the total cloud mass
 
             // Initial cloud generation
-            INITIAL_PARTICLES: 600,
+            INITIAL_PARTICLES: 1200, // Higher resolution for smoother accretion
             CLOUD_RADIUS: Math.min(window.innerWidth, window.innerHeight) * 0.45,
-            BASE_MASS: 1,
+            BASE_MASS: 1.2,          // Total cloud mass is ~1440
             CENTER_MASS_SEED: 0      // Set to 0: completely organic star formation
         };
 
@@ -138,6 +138,8 @@
         let bodies = [];
         let shockwaves = []; // To store stellar ignition animations
         let cameraShake = 0; // Intensity of screen shake
+        let cameraX = 0, cameraY = 0; // Dynamic camera tracking
+        let cameraScale = 1.0; // Dynamic camera zoom
         let simulationTime = 0;
         let isPaused = false;
         let animationFrameId;
@@ -165,14 +167,14 @@
             // Recalculate radius and visual properties based on mass
             updateProperties() {
                 // Density increases slightly as mass increases (core compression)
-                // Radius = cube_root(Volume). Volume = Mass / Density.
                 let density = 1.0;
                 if (this.mass > Config.MASS_PLANET) density = 1.5;
                 if (this.mass > Config.MASS_GAS_GIANT) density = 0.8; // Gas giants are less dense
                 if (this.mass > Config.MASS_STAR) density = 2.0;      // Star core is very dense
                 
-                // Base calculation for radius
-                this.radius = Math.max(1.5, Math.pow((this.mass / density) * 2, 1/3));
+                // Radius multiplier reduced to 8 so bodies must actually gravitate towards each other
+                // rather than just bumping due to massive hitboxes.
+                this.radius = Math.max(1.5, Math.pow((this.mass / density) * 8, 1/3));
 
                 // Determine color based on mass classification
                 const oldType = this.type;
@@ -192,7 +194,7 @@
                     this.glowColor = 'rgba(253, 186, 116, 0.4)';
                 } else if (this.mass >= Config.MASS_PLANET) {
                     this.type = 'planet';
-                    // Give planets random earthy colors based on initial arbitrary ID or position
+                    // Give planets random earthy colors
                     const hue = Math.floor(Math.abs(this.x + this.y) % 360);
                     this.color = `hsl(${hue}, 40%, 50%)`;
                     this.glowColor = null;
@@ -209,12 +211,11 @@
 
             // Trigger stellar ignition shockwave
             ignite() {
-                // Initialize a complex shockwave with particles and rays
                 shockwaves.push({
                     x: this.x,
                     y: this.y,
                     radius: this.radius,
-                    energy: 1.0, // Fades from 1 to 0
+                    energy: 1.0, 
                     rays: Array.from({length: 16}, () => ({
                         angle: Math.random() * Math.PI * 2,
                         lengthMultiplier: 0.5 + Math.random() * 1.5,
@@ -222,25 +223,19 @@
                     })),
                     ejecta: Array.from({length: 80}, () => ({
                         angle: Math.random() * Math.PI * 2,
-                        speed: 800 + Math.random() * 1500, // Very fast!
+                        speed: 800 + Math.random() * 1500, 
                         dist: this.radius,
                         size: Math.random() * 3 + 1,
                         life: 1.0
                     }))
                 });
-                
-                // Trigger massive camera shake
                 cameraShake = 25;
             }
 
-            // Inelastic collision merger
             merge(other) {
-                // Conservation of momentum: (m1v1 + m2v2) / (m1 + m2)
                 const totalMass = this.mass + other.mass;
                 this.vx = (this.vx * this.mass + other.vx * other.mass) / totalMass;
                 this.vy = (this.vy * this.mass + other.vy * other.mass) / totalMass;
-                
-                // Center of mass for new position
                 this.x = (this.x * this.mass + other.x * other.mass) / totalMass;
                 this.y = (this.y * this.mass + other.y * other.mass) / totalMass;
                 
@@ -249,34 +244,30 @@
                 other.dead = true;
             }
 
-            draw(ctx, offsetX, offsetY) {
-                const drawX = this.x - offsetX;
-                const drawY = this.y - offsetY;
-                
-                // Skip if way off screen or if position is invalid (NaN/Infinity)
-                if (!isFinite(drawX) || !isFinite(drawY) || 
-                    drawX < -100 || drawX > width + 100 || 
-                    drawY < -100 || drawY > height + 100) return;
+            draw(ctx, viewLeft, viewRight, viewTop, viewBottom) {
+                // View frustum culling (skip drawing if outside the camera's zoomed view)
+                if (!isFinite(this.x) || !isFinite(this.y) || 
+                    this.x < viewLeft || this.x > viewRight || 
+                    this.y < viewTop || this.y > viewBottom) return;
 
                 ctx.beginPath();
                 
-                // Draw glow for massive objects or diffuse gas
                 if (this.glowColor) {
                     const glowRadius = Math.max(0.1, this.type === 'star' ? this.radius * 4 : 
                                      this.type === 'gas_giant' ? this.radius * 2 : 
-                                     this.radius * 3); // gas
+                                     this.radius * 3); 
                     
-                    const grad = ctx.createRadialGradient(drawX, drawY, this.radius * 0.5, drawX, drawY, glowRadius);
+                    const grad = ctx.createRadialGradient(this.x, this.y, this.radius * 0.5, this.x, this.y, glowRadius);
                     grad.addColorStop(0, this.glowColor);
                     grad.addColorStop(1, 'rgba(0,0,0,0)');
                     ctx.fillStyle = grad;
-                    ctx.arc(drawX, drawY, glowRadius, 0, Math.PI * 2);
+                    ctx.arc(this.x, this.y, glowRadius, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.beginPath();
                 }
 
                 ctx.fillStyle = this.color;
-                ctx.arc(drawX, drawY, Math.max(0.1, this.radius), 0, Math.PI * 2);
+                ctx.arc(this.x, this.y, Math.max(0.1, this.radius), 0, Math.PI * 2);
                 ctx.fill();
             }
         }
@@ -292,51 +283,65 @@
             bodies = [];
             shockwaves = [];
             simulationTime = 0;
+            cameraX = 0;
+            cameraY = 0;
+            cameraScale = 1.0;
             
-            const cx = 0; // Using 0,0 as conceptual center for math simplicity
+            const cx = 0; 
             const cy = 0;
-
-            // Total mass of the cloud used to calculate initial orbital velocities
             const totalCloudMass = Config.INITIAL_PARTICLES * Config.BASE_MASS;
 
             for (let i = 0; i < Config.INITIAL_PARTICLES; i++) {
-                // Random position within a disk
-                const r = Math.random() * Config.CLOUD_RADIUS;
-                const theta = Math.random() * Math.PI * 2;
+                // Natural Density Gradient: 40% of mass is concentrated in the inner 30% of the radius.
+                // This triggers Jeans Instability, ensuring a central star forms naturally!
+                const isCore = Math.random() < 0.4;
+                const r = isCore ? 
+                    Config.CLOUD_RADIUS * 0.3 * Math.sqrt(Math.random()) : 
+                    Config.CLOUD_RADIUS * Math.sqrt(Math.random());
                 
+                const theta = Math.random() * Math.PI * 2;
                 const x = cx + r * Math.cos(theta);
                 const y = cy + r * Math.sin(theta);
 
-                // Organic Initial Orbital Velocity
-                // Calculates velocity based on the mass of the gas enclosed within this particle's radius.
-                // For a uniform 2D disk, enclosed mass is proportional to r^2.
-                const enclosedMass = totalCloudMass * Math.pow(r / Config.CLOUD_RADIUS, 2);
-                const orbitalVelocityMag = Math.sqrt((Config.G * enclosedMass) / (r + 1)) * Config.SPIN_MULTIPLIER;
+                // Calculate starting orbital velocity based on the density gradient
+                const radiusRatio = r / Config.CLOUD_RADIUS;
+                let enclosedMass = 0;
+                if (isCore) {
+                    enclosedMass = totalCloudMass * (0.4 * Math.pow(r / (Config.CLOUD_RADIUS * 0.3), 2) + 0.6 * Math.pow(radiusRatio, 2));
+                } else {
+                    enclosedMass = totalCloudMass * (0.4 + 0.6 * Math.pow(radiusRatio, 2));
+                }
+
+                const orbitalVelocityMag = Math.sqrt((Config.G * enclosedMass) / (r + 10)) * Config.SPIN_MULTIPLIER;
                 
-                // Tangent vector (rotation)
-                let vx = -Math.sin(theta) * orbitalVelocityMag;
-                let vy = Math.cos(theta) * orbitalVelocityMag;
+                // Add velocity with a little chaotic thermal noise
+                let vx = -Math.sin(theta) * orbitalVelocityMag + (Math.random() - 0.5) * orbitalVelocityMag * 0.15;
+                let vy = Math.cos(theta) * orbitalVelocityMag + (Math.random() - 0.5) * orbitalVelocityMag * 0.15;
 
-                // Add random noise to velocity to simulate chaotic gas
-                vx += (Math.random() - 0.5) * orbitalVelocityMag * 0.3;
-                vy += (Math.random() - 0.5) * orbitalVelocityMag * 0.3;
-
-                // Slightly varied starting mass
                 const mass = Config.BASE_MASS * (0.5 + Math.random());
-
                 bodies.push(new Body(x, y, vx, vy, mass));
             }
         }
 
         function injectGasCloud() {
-            // Get center of mass of current system to target the injection
-            let sysM = 0, sysX = 0, sysY = 0;
+            let heaviest = bodies[0];
             for (let b of bodies) {
-                sysM += b.mass;
-                sysX += b.x * b.mass;
-                sysY += b.y * b.mass;
+                if (!b.dead && b.mass > (heaviest ? heaviest.mass : 0)) heaviest = b;
             }
-            if (sysM > 0) { sysX /= sysM; sysY /= sysM; }
+            let sysM = 0, sysX = 0, sysY = 0;
+            if (heaviest) {
+                for (let b of bodies) {
+                    if (b.dead) continue;
+                    let dx = b.x - heaviest.x;
+                    let dy = b.y - heaviest.y;
+                    if (dx*dx + dy*dy < Config.CLOUD_RADIUS * Config.CLOUD_RADIUS * 10) {
+                        sysM += b.mass;
+                        sysX += b.x * b.mass;
+                        sysY += b.y * b.mass;
+                    }
+                }
+                if (sysM > 0) { sysX /= sysM; sysY /= sysM; }
+            }
 
             const injectCount = 200;
             const outerRadius = Config.CLOUD_RADIUS * 1.5;
@@ -347,7 +352,6 @@
                 const x = sysX + r * Math.cos(theta);
                 const y = sysY + r * Math.sin(theta);
 
-                // Approximated velocity for outer disk
                 const velMag = Math.sqrt((Config.G * sysM) / Math.max(1, r)) * 0.9 * Config.SPIN_MULTIPLIER; 
                 let vx = -Math.sin(theta) * velMag + (Math.random() - 0.5);
                 let vy = Math.cos(theta) * velMag + (Math.random() - 0.5);
@@ -361,29 +365,42 @@
 
             const n = bodies.length;
             
-            // Calculate System Center of Mass and Mass Distribution for accurate orbital drag
-            let cmX = 0, cmY = 0, sysMass = 0, maxBodyMass = 0;
+            let heaviest = null;
+            let maxBodyMass = 0;
             for (let b of bodies) {
                 if (b.dead) continue;
-                cmX += b.x * b.mass;
-                cmY += b.y * b.mass;
-                sysMass += b.mass;
-                if (b.mass > maxBodyMass) maxBodyMass = b.mass;
+                if (b.mass > maxBodyMass) {
+                    maxBodyMass = b.mass;
+                    heaviest = b;
+                }
             }
-            if (sysMass > 0) { cmX /= sysMass; cmY /= sysMass; }
 
-            // Drag scales with DT so simulation speed changes don't alter physics
+            let cmX = 0, cmY = 0, sysMass = 0;
+            if (heaviest) {
+                for (let b of bodies) {
+                    if (b.dead) continue;
+                    // Ignore particles blown away by solar wind for center-of-mass calc
+                    let dx = b.x - heaviest.x;
+                    let dy = b.y - heaviest.y;
+                    if (dx*dx + dy*dy < Config.CLOUD_RADIUS * Config.CLOUD_RADIUS * 10) {
+                        cmX += b.x * b.mass;
+                        cmY += b.y * b.mass;
+                        sysMass += b.mass;
+                    }
+                }
+                if (sysMass > 0) { cmX /= sysMass; cmY /= sysMass; }
+            }
+
             const dragLoss = 1.0 - Config.FRICTION;
             const dragStrength = dragLoss * 20.0 * Config.DT;
 
-            // Apply gravity (O(N^2) complexity - fine for < 1000 bodies in JS)
             for (let i = 0; i < n; i++) {
                 const b1 = bodies[i];
                 if (b1.dead) continue;
 
-                // Orbital Gas Drag (Circularizes orbits and causes slow decay)
-                // Only applied to light gas/dust particles. Large bodies maintain perfect inertia!
-                if (b1.mass <= Config.MASS_ASTEROID && dragStrength > 0) {
+                // --- Dynamic Decoupling Drag ---
+                // Planets completely decouple and maintain orbit. Only gas/asteroids feel friction.
+                if (b1.mass < Config.MASS_PLANET && dragStrength > 0) {
                     const rx = b1.x - cmX;
                     const ry = b1.y - cmY;
                     const rSq = rx*rx + ry*ry;
@@ -391,26 +408,33 @@
                     if (rSq > 10) {
                         const r = Math.sqrt(rSq);
                         
-                        // Preserve current angular momentum direction
                         const lz = rx * b1.vy - ry * b1.vx;
                         const dir = lz >= 0 ? 1 : -1;
                         
                         const tx = (-ry / r) * dir;
                         const ty = (rx / r) * dir;
                         
-                        // Approximate enclosed mass (transitions from uniform disk to central star)
                         const remainingMass = sysMass - maxBodyMass;
                         const radiusRatio = Math.min(1.0, r / Config.CLOUD_RADIUS);
-                        const enclosedMass = maxBodyMass + remainingMass * (radiusRatio * radiusRatio);
+                        const enclosedMass = maxBodyMass + remainingMass * Math.pow(radiusRatio, 2);
                         
-                        // 0.98 multiplier makes gas slightly sub-Keplerian, forcing an inward spiral
-                        const vIdealMag = Math.sqrt((Config.G * enclosedMass) / (r + 10)) * 0.98;
+                        const massRatio = Math.min(1.0, Config.BASE_MASS / b1.mass);
                         
-                        b1.vx += ((tx * vIdealMag) - b1.vx) * dragStrength;
-                        b1.vy += ((ty * vIdealMag) - b1.vy) * dragStrength;
+                        // Extremely sharp exponential dropoff for decoupling
+                        const decouplingFactor = Math.pow(massRatio, 3.0); 
+                        
+                        // Gas wants 85% orbital speed (spirals in). Heavy clumps want 100% (stable orbit).
+                        const orbitSpeedMult = 1.0 - (0.15 * decouplingFactor);
+                        const vIdealMag = Math.sqrt((Config.G * enclosedMass) / (r + 10)) * orbitSpeedMult;
+                        
+                        const effectiveDrag = dragStrength * decouplingFactor * 3.0;
+                        
+                        b1.vx += ((tx * vIdealMag) - b1.vx) * effectiveDrag;
+                        b1.vy += ((ty * vIdealMag) - b1.vy) * effectiveDrag;
                     }
                 }
 
+                // --- N-Body Gravity & Collisions ---
                 for (let j = i + 1; j < n; j++) {
                     const b2 = bodies[j];
                     if (b2.dead) continue;
@@ -418,24 +442,18 @@
                     const dx = b2.x - b1.x;
                     const dy = b2.y - b1.y;
                     const distSq = dx*dx + dy*dy;
-                    // Strict limit to prevent division by zero causing NaN calculations!
                     const dist = Math.max(0.01, Math.sqrt(distSq));
 
-                    // Collision / Accretion Check
                     if (dist < b1.radius + b2.radius) {
-                        // Merge the smaller into the larger
                         if (b1.mass > b2.mass) {
                             b1.merge(b2);
-                            continue; // b1 survives, we continue the inner loop to test against b3, b4...
+                            continue; 
                         } else {
                             b2.merge(b1);
-                            // CRITICAL FIX: b1 is now dead! We must break out of the inner loop immediately 
-                            // to prevent it from ghost-interacting with remaining particles!
                             break; 
                         }
                     }
 
-                    // Gravity calculation
                     const force = (Config.G * b1.mass * b2.mass) / (distSq + Config.SOFTENING);
                     const fx = (force * dx) / dist;
                     const fy = (force * dy) / dist;
@@ -443,18 +461,26 @@
                     b1.vx += (fx / b1.mass) * Config.DT;
                     b1.vy += (fy / b1.mass) * Config.DT;
                     b2.vx -= (fx / b2.mass) * Config.DT;
-                    b2.vx -= (fy / b2.mass) * Config.DT;
+                    b2.vy -= (fy / b2.mass) * Config.DT; 
                 }
             }
 
-            // Update positions & clear dead bodies
             let maxMass = 0;
             for (let i = bodies.length - 1; i >= 0; i--) {
                 const b = bodies[i];
                 if (b.dead) {
                     bodies.splice(i, 1);
                 } else {
-                    // Velocity clamp to prevent physics explosion cascading into NaN
+                    // Garbage Collection: Delete bodies blown out into deep space to save CPU
+                    const distFromCenterSq = (b.x - cmX)*(b.x - cmX) + (b.y - cmY)*(b.y - cmY);
+                    if (distFromCenterSq > Math.pow(Config.CLOUD_RADIUS * 12, 2)) {
+                        bodies.splice(i, 1);
+                        continue;
+                    }
+
+                    if (!isFinite(b.vx)) b.vx = 0;
+                    if (!isFinite(b.vy)) b.vy = 0;
+
                     if (b.vx > 20000) b.vx = 20000;
                     if (b.vx < -20000) b.vx = -20000;
                     if (b.vy > 20000) b.vy = 20000;
@@ -462,48 +488,49 @@
 
                     b.x += b.vx * Config.DT;
                     b.y += b.vy * Config.DT;
+                    
+                    if (!isFinite(b.x)) b.x = 0;
+                    if (!isFinite(b.y)) b.y = 0;
+
                     if (b.mass > maxMass) maxMass = b.mass;
                 }
             }
 
-            // Update Shockwaves (Solar Wind Ignition Effect)
             for (let i = shockwaves.length - 1; i >= 0; i--) {
                 let sw = shockwaves[i];
-                const expansionSpeed = 1500; // Pixels per simulation second
+                const expansionSpeed = 1500; 
                 
                 sw.radius += expansionSpeed * Config.DT;
-                sw.energy -= 0.3 * Config.DT; // Slower fade for dramatic effect
+                sw.energy -= 0.3 * Config.DT; 
 
-                // Update ejecta particles
                 for (let p of sw.ejecta) {
                     p.dist += p.speed * Config.DT;
                     p.life -= 0.4 * Config.DT;
                 }
 
                 if (sw.energy > 0) {
-                    // Apply solar wind outward force to light objects (Clearing the nebula)
                     for (let b of bodies) {
-                        if (b.dead || b.type === 'star' || b.type === 'gas_giant') continue;
+                        // Planets and Stars are immune to the solar wind, only gas/dust is blown away
+                        if (b.dead || b.type === 'star' || b.type === 'gas_giant' || b.mass >= Config.MASS_PLANET) continue;
                         
                         const dx = b.x - sw.x;
                         const dy = b.y - sw.y;
                         const distSq = dx*dx + dy*dy;
-                        const dist = Math.max(0.1, Math.sqrt(distSq)); // Division by Zero Guard
+                        const dist = Math.max(0.1, Math.sqrt(distSq)); 
 
-                        // Affect bodies as the wave passes them, creating a cleared cavity
                         if (Math.abs(dist - sw.radius) < expansionSpeed * Config.DT * 2.0 || dist < sw.radius) {
-                            // Exponentially weaker on heavier objects. Immense on dust.
-                            const force = (sw.energy * 800) / Math.pow(b.mass, 1.5); 
+                            const massRatio = Math.min(1.0, Config.BASE_MASS / b.mass);
+                            // Immense force on light gas, completely drops off for heavier objects
+                            const force = (sw.energy * 1200) * Math.pow(massRatio, 3.0); 
                             b.vx += (dx / dist) * force;
                             b.vy += (dy / dist) * force;
                         }
                     }
                 } else {
-                    shockwaves.splice(i, 1); // Remove when faded
+                    shockwaves.splice(i, 1); 
                 }
             }
             
-            // Decay camera shake
             if (cameraShake > 0) {
                 cameraShake -= 15 * Config.DT;
                 if (cameraShake < 0) cameraShake = 0;
@@ -514,127 +541,149 @@
         }
 
         function draw() {
-            // Draw opaque background to remove motion trails
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, width, height);
 
-            // Calculate Center of Mass to track the system with the camera
-            let cmX = 0, cmY = 0, totalMass = 0;
+            let heaviest = null;
+            let maxM = 0;
+            let maxDistSq = Config.CLOUD_RADIUS * Config.CLOUD_RADIUS * 0.25; // Base minimum zoom area
+
             for (let b of bodies) {
-                cmX += b.x * b.mass;
-                cmY += b.y * b.mass;
-                totalMass += b.mass;
+                if (!b.dead && b.mass > maxM) {
+                    maxM = b.mass;
+                    heaviest = b;
+                }
             }
 
-            let offsetX = 0, offsetY = 0;
-            if (totalMass > 0) {
-                cmX /= totalMass;
-                cmY /= totalMass;
-                // Center camera on center of mass
-                offsetX = cmX - width / 2;
-                offsetY = cmY - height / 2;
-            } else {
-                offsetX = -width/2;
-                offsetY = -height/2;
+            if (heaviest) {
+                // Heavily dampened tracking: keeps the view mostly static but slowly drifts to keep the star centered
+                cameraX += (heaviest.x - cameraX) * 0.002;
+                cameraY += (heaviest.y - cameraY) * 0.002;
             }
 
-            // Apply Camera Shake
+            // Calculate dynamic zoom by finding the extent of the active system
+            for (let b of bodies) {
+                if (b.dead) continue;
+                let dx = b.x - cameraX;
+                let dy = b.y - cameraY;
+                let distSq = dx*dx + dy*dy;
+                
+                // Only scale to fit the *planets* and *stars*. 
+                // Ignore blown-away gas so the camera doesn't track deep space!
+                if (b.mass >= Config.MASS_ASTEROID && distSq > maxDistSq && distSq < Math.pow(Config.CLOUD_RADIUS * 6, 2)) {
+                    maxDistSq = distSq;
+                }
+            }
+
+            // Calculate target scale (fit the max distance into 40% of the screen)
+            let maxDist = Math.sqrt(maxDistSq);
+            let minScreenDim = Math.min(width, height);
+            let targetScale = (minScreenDim * 0.40) / maxDist;
+            
+            // Clamp zoom levels
+            if (targetScale < 0.1) targetScale = 0.1; // Relaxed max zoom out limit for distant planets
+            if (targetScale > 2.0) targetScale = 2.0; // Max zoom in limit
+            
+            // Extremely slow zoom smoothing to avoid bouncy viewport
+            cameraScale += (targetScale - cameraScale) * 0.005; 
+
+            // Set up World Canvas Transform
+            ctx.save();
+            ctx.translate(width / 2, height / 2); // Move 0,0 to center of screen
+
             if (cameraShake > 0) {
-                offsetX += (Math.random() - 0.5) * cameraShake * 2;
-                offsetY += (Math.random() - 0.5) * cameraShake * 2;
+                ctx.translate((Math.random() - 0.5) * cameraShake * 2, (Math.random() - 0.5) * cameraShake * 2);
             }
 
-            // Draw all bodies
+            ctx.scale(cameraScale, cameraScale); // Apply zoom
+            ctx.translate(-cameraX, -cameraY); // Center on the tracked object
+
+            // Calculate visible boundaries for culling
+            const viewMargin = 100 / cameraScale;
+            const viewLeft = cameraX - (width / 2) / cameraScale - viewMargin;
+            const viewRight = cameraX + (width / 2) / cameraScale + viewMargin;
+            const viewTop = cameraY - (height / 2) / cameraScale - viewMargin;
+            const viewBottom = cameraY + (height / 2) / cameraScale + viewMargin;
+
             for (let b of bodies) {
-                b.draw(ctx, offsetX, offsetY);
+                b.draw(ctx, viewLeft, viewRight, viewTop, viewBottom);
             }
 
-            // Draw Shockwaves
             for (let sw of shockwaves) {
                 if (sw.energy <= 0) continue;
                 
-                const drawX = sw.x - offsetX;
-                const drawY = sw.y - offsetY;
-
-                // Guard against canvas API crashes
-                if (!isFinite(drawX) || !isFinite(drawY)) continue;
+                if (!isFinite(sw.x) || !isFinite(sw.y)) continue;
 
                 ctx.save();
                 ctx.globalCompositeOperation = "screen";
 
-                // 1. Draw intense light rays piercing the void
                 for (let ray of sw.rays) {
                     const rayLen = Math.max(0.1, sw.radius * ray.lengthMultiplier * 1.5);
                     const rayGrad = ctx.createLinearGradient(
-                        drawX, drawY, 
-                        drawX + Math.cos(ray.angle) * rayLen, 
-                        drawY + Math.sin(ray.angle) * rayLen
+                        sw.x, sw.y, 
+                        sw.x + Math.cos(ray.angle) * rayLen, 
+                        sw.y + Math.sin(ray.angle) * rayLen
                     );
                     rayGrad.addColorStop(0, `rgba(255, 255, 255, ${sw.energy * 0.8})`);
                     rayGrad.addColorStop(1, 'rgba(255, 230, 150, 0)');
                     
                     ctx.beginPath();
-                    ctx.moveTo(drawX, drawY);
-                    ctx.lineTo(drawX + Math.cos(ray.angle) * rayLen, drawY + Math.sin(ray.angle) * rayLen);
+                    ctx.moveTo(sw.x, sw.y);
+                    ctx.lineTo(sw.x + Math.cos(ray.angle) * rayLen, sw.y + Math.sin(ray.angle) * rayLen);
                     ctx.strokeStyle = rayGrad;
-                    ctx.lineWidth = ray.width * sw.energy;
+                    ctx.lineWidth = Math.max(1 / cameraScale, ray.width * sw.energy); // Scale-independent line width
                     ctx.stroke();
                 }
 
-                // 2. Draw Ejecta Particles (Coronal Mass Ejection)
                 for (let p of sw.ejecta) {
                     if (p.life <= 0) continue;
-                    const px = drawX + Math.cos(p.angle) * p.dist;
-                    const py = drawY + Math.sin(p.angle) * p.dist;
+                    const px = sw.x + Math.cos(p.angle) * p.dist;
+                    const py = sw.y + Math.sin(p.angle) * p.dist;
                     
                     ctx.beginPath();
                     ctx.arc(px, py, Math.max(0.1, p.size * p.life), 0, Math.PI * 2);
-                    // Shifts from bright white to hot orange as it cools/dies
                     ctx.fillStyle = `rgba(255, ${Math.floor(200 * p.life)}, ${Math.floor(100 * p.life)}, ${p.life})`;
                     ctx.fill();
                     
-                    // Small trail
                     ctx.beginPath();
                     ctx.moveTo(px, py);
                     ctx.lineTo(px - Math.cos(p.angle) * p.dist * 0.1, py - Math.sin(p.angle) * p.dist * 0.1);
                     ctx.strokeStyle = `rgba(255, 150, 50, ${p.life * 0.5})`;
-                    ctx.lineWidth = Math.max(0.1, p.size);
+                    ctx.lineWidth = Math.max(0.1 / cameraScale, p.size);
                     ctx.stroke();
                 }
 
-                // 3. The expanding primary shockwave boundary
                 ctx.beginPath();
-                ctx.arc(drawX, drawY, Math.max(0.1, sw.radius), 0, Math.PI * 2);
+                ctx.arc(sw.x, sw.y, Math.max(0.1, sw.radius), 0, Math.PI * 2);
                 ctx.strokeStyle = `rgba(200, 230, 255, ${sw.energy * 0.8})`;
-                ctx.lineWidth = Math.max(1, sw.energy * 8);
+                ctx.lineWidth = Math.max(1 / cameraScale, sw.energy * 8);
                 ctx.stroke();
 
-                // 4. Secondary inner ion shockwave (slightly delayed)
                 if (sw.radius > 50) {
                     ctx.beginPath();
-                    ctx.arc(drawX, drawY, Math.max(0.1, sw.radius * 0.85), 0, Math.PI * 2);
+                    ctx.arc(sw.x, sw.y, Math.max(0.1, sw.radius * 0.85), 0, Math.PI * 2);
                     ctx.strokeStyle = `rgba(255, 200, 100, ${sw.energy * 0.5})`;
-                    ctx.lineWidth = Math.max(1, sw.energy * 4);
+                    ctx.lineWidth = Math.max(1 / cameraScale, sw.energy * 4);
                     ctx.stroke();
                 }
 
-                // 5. The central blinding bloom (Core flash)
                 const bloomRadius = Math.max(0.1, sw.radius * 0.6);
-                const grad = ctx.createRadialGradient(drawX, drawY, 0, drawX, drawY, bloomRadius);
+                const grad = ctx.createRadialGradient(sw.x, sw.y, 0, sw.x, sw.y, bloomRadius);
                 grad.addColorStop(0, `rgba(255, 255, 255, ${sw.energy})`);
                 grad.addColorStop(0.2, `rgba(255, 250, 200, ${sw.energy * 0.8})`);
                 grad.addColorStop(1, 'rgba(255, 200, 100, 0)');
                 ctx.fillStyle = grad;
                 ctx.beginPath();
-                ctx.arc(drawX, drawY, bloomRadius, 0, Math.PI * 2);
+                ctx.arc(sw.x, sw.y, bloomRadius, 0, Math.PI * 2);
                 ctx.fill();
 
                 ctx.restore();
             }
+
+            ctx.restore(); // Restore World Canvas Transform so UI isn't affected
         }
 
         function loop() {
-            // Added try-catch to ensure the loop is fault-tolerant and survives math/canvas errors
             try {
                 updatePhysics();
                 draw();
@@ -644,17 +693,14 @@
             animationFrameId = requestAnimationFrame(loop);
         }
 
-        // --- UI and Interaction Logic ---
-
         function updateUIStats(maxMass) {
             if (Math.floor(simulationTime) % 5 === 0) {
                 uiBodies.innerText = bodies.length;
-                uiTime.innerText = Math.floor(simulationTime * 100).toLocaleString(); // Scale time for narrative
+                uiTime.innerText = Math.floor(simulationTime * 100).toLocaleString(); 
                 uiMass.innerText = Math.floor(maxMass);
             }
         }
 
-        // Listeners for UI Controls
         document.getElementById('btnPause').addEventListener('click', (e) => {
             isPaused = !isPaused;
             e.target.innerText = isPaused ? "Resume" : "Pause";
@@ -663,7 +709,6 @@
         });
 
         document.getElementById('btnReset').addEventListener('click', () => {
-            // Clear screen completely
             ctx.fillStyle = "#000";
             ctx.fillRect(0, 0, width, height);
             initSimulation();
@@ -685,7 +730,7 @@
 
         uiSpin.addEventListener('input', (e) => {
             Config.SPIN_MULTIPLIER = parseFloat(e.target.value);
-            document.getElementById('spinVal').innerText = Config.SPIN_MULTIPLIER.toFixed(1);
+            document.getElementById('spinVal').innerText = Config.SPIN_MULTIPLIER.toFixed(2);
         });
 
         uiFric.addEventListener('input', (e) => {
@@ -693,40 +738,23 @@
             document.getElementById('fricVal').innerText = Config.FRICTION.toFixed(3);
         });
 
-        // Interactive Canvas: Click to add a large mass (rogue planet/star)
         canvas.addEventListener('mousedown', (e) => {
-            // Calculate center of mass to convert screen coordinates to world coordinates
-            let cmX = 0, cmY = 0, totalMass = 0;
-            for (let b of bodies) {
-                cmX += b.x * b.mass;
-                cmY += b.y * b.mass;
-                totalMass += b.mass;
-            }
-            if (totalMass > 0) {
-                cmX /= totalMass;
-                cmY /= totalMass;
-            }
+            // Apply reverse camera scale to find the correct world click coordinates
+            const worldX = (e.clientX - width / 2) / cameraScale + cameraX;
+            const worldY = (e.clientY - height / 2) / cameraScale + cameraY;
 
-            const worldX = e.clientX + (cmX - width / 2);
-            const worldY = e.clientY + (cmY - height / 2);
-
-            // Add a massive rogue body
             const rogue = new Body(worldX, worldY, 0, 0, Config.MASS_PLANET * 2);
             bodies.push(rogue);
         });
 
-        // Window resize handling
         window.addEventListener('resize', () => {
             resize();
-            // Optional: Draw black immediately to avoid tearing
             ctx.fillStyle = "#000";
             ctx.fillRect(0, 0, width, height);
         });
 
-        // Initialize and start
         resize();
         initSimulation();
-        // Paint black initially
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, width, height);
         loop();
