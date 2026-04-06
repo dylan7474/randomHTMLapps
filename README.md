@@ -49,8 +49,8 @@ npx serve .
 - **`NebularHypothesisSimulation.html` — Stellar Genesis (N-Body Accretion)**  
   A nebular hypothesis-inspired gravity simulation with tunable parameters (G, timestep, spin, friction) and orbital body formation.
 
-- **`EntropyWordGenerator.html` — Stellar Genesis variant**  
-  A second build of the same stellar accretion concept (same UI concept/title family) with different tuning defaults/variants.
+- **`EntropyWordGenerator.html` — Entropy Word Generator**  
+  Entropy-driven word generation utility for creating randomized word outputs/sequences.
 
 - **`SparkGapSimulator.html` — Frankenstein Spark Gap Transmitter**  
   A stylized “mad-science” electrical apparatus sim featuring charge/spark behavior, dials/switches, and dramatic audiovisual feedback.
@@ -81,6 +81,26 @@ npx serve .
 - **Local storage usage**: some apps (notably speech/chat variants) persist preferences (for example language/model settings) in `localStorage`.
 - **Network expectations for some features**: several files load external assets/libraries from CDNs; offline execution may disable or degrade those features.
 - **Variant naming/history**: there are two similarly themed stellar simulation files (`NebularHypothesisSimulation.html` and `EntropyWordGenerator.html`), and two VoxScribe-themed speech apps (`voicescribe.html` and `chatter.html`) with different scope/complexity.
+
+## Verification snapshot (inspected April 6, 2026)
+
+All HTML files in this repository were manually re-checked against this README index:
+
+- `breakout.html`: ✅ description matches (levels, power-ups, keyboard/touch controls).
+- `galaxians.html`: ✅ description matches (dive attacks, score/lives HUD, mobile controls).
+- `vaders.html`: ✅ description matches (Space-Invaders-style loop, escalating pressure, mobile controls).
+- `lander.html`: ✅ description matches (fuel/thrust/angle management with landing conditions).
+- `pacman.html`: ✅ description matches (pellets + power pellets + frightened ghost state behavior).
+- `pool.html`: ✅ description matches (drag aiming, power bar, cue spin/“english” controls).
+- `pennyfalls.html`: ✅ description matches (3D coin pusher using WebGL + physics engine).
+- `NebularHypothesisSimulation.html`: ✅ description matches (stellar accretion/gravity simulation with tunable parameters).
+- `EntropyWordGenerator.html`: ✅ corrected above (entropy-based word generation tool).
+- `SparkGapSimulator.html`: ✅ description matches (spark-gap apparatus sim with dials/switches and audiovisual feedback).
+- `voicescribe.html`: ✅ description matches (speech-to-text with editable transcript, copy, and download).
+- `chatter.html`: ✅ description matches (conversation-oriented VoxScribe variant with persistence and AI integration hooks).
+- `FrequencyDetector.html`: ✅ description matches (real-time mic frequency/intel dashboard).
+- `sleep.html`: ✅ description matches (ambient sensory sleep/focus aid).
+- `cuckooclock.html`: ✅ description matches (animated cuckoo clock with synthesized clock/chime audio).
 
 ## Suggested future improvements
 
