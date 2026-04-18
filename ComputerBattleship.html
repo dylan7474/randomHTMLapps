@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Fleet: Tactical Command</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --neon-cyan: #00f3ff;
+            --neon-magenta: #ff00ff;
+            --neon-green: #00ff66;
+            --neon-red: #ff3333;
+            --dark-bg: #050b14;
+            --grid-line: rgba(0, 243, 255, 0.2);
+        }
+
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            background-color: var(--dark-bg);
+            color: var(--neon-cyan);
+            overflow-x: hidden;
+            background-image: radial-gradient(circle at 50% 50%, #0a1128 0%, #02050a 100%);
+        }
+
+        /* Scanline Overlay */
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.2) 50%,
+                rgba(0,0,0,0.2)
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 50;
+            opacity: 0.3;
+        }
+
+        /* Glowing Text */
+        .glow-text {
+            text-shadow: 0 0 5px var(--neon-cyan), 0 0 10px var(--neon-cyan);
+        }
+        .glow-text-red {
+            color: var(--neon-red);
+            text-shadow: 0 0 5px var(--neon-red), 0 0 10px var(--neon-red);
+        }
+
+        /* Grid Styling */
+        .game-board {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            grid-template-rows: repeat(10, 1fr);
+            gap: 1px;
+            background-color: var(--grid-line);
+            border: 2px solid var(--neon-cyan);
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.3), inset 0 0 15px rgba(0, 243, 255, 0.2);
+            position: relative;
+            aspect-ratio: 1;
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        /* Radar Sweep Animation */
+        .radar-sweep {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 150%;
+            height: 150%;
+            background: conic-gradient(from 0deg, transparent 70%, rgba(0, 243, 255, 0.4) 100%);
+            transform-origin: 0 0;
+            animation: sweep 4s linear infinite;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        @keyframes sweep {
+            0% { transform: rotate(0deg) translate(-50%, -50%); }
+            100% { transform: rotate(360deg) translate(-50%, -50%); }
+        }
+
+        .cell {
+            background-color: rgba(5, 11, 20, 0.8);
+            position: relative;
+            cursor: crosshair;
+            transition: background-color 0.2s;
+            z-index: 1;
+        }
+
+        .board-active .cell:hover {
+            background-color: rgba(0, 243, 255, 0.3);
+        }
+
+        .cell.ship {
+            background-color: rgba(0, 255, 102, 0.2);
+            box-shadow: inset 0 0 8px var(--neon-green);
+        }
+
+        .cell.hit {
+            background-color: rgba(255, 51, 51, 0.2);
+        }
+
+        .cell.miss {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Markers */
+        .marker {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 60%;
+            height: 60%;
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .hit-marker {
+            background-color: var(--neon-red);
+            box-shadow: 0 0 10px var(--neon-red), 0 0 20px var(--neon-red);
+            animation: explode 0.5s ease-out forwards;
+        }
+
+        .miss-marker {
+            background-color: #888;
+            box-shadow: 0 0 5px #888;
+            width: 30%;
+            height: 30%;
+            animation: plop 0.3s ease-out forwards;
+        }
+
+        @keyframes explode {
+            0% { transform: translate(-50%, -50%) scale(0.1); opacity: 1; }
+            50% { transform: translate(-50%, -50%) scale(1.5); opacity: 0.8; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+
+        @keyframes plop {
+            0% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+
+        /* UI Elements */
+        .cyber-panel {
+            background: rgba(10, 17, 40, 0.8);
+            border: 1px solid rgba(0, 243, 255, 0.5);
+            backdrop-filter: blur(4px);
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.1);
+        }
+
+        .cyber-button {
+            background: transparent;
+            border: 1px solid var(--neon-cyan);
+            color: var(--neon-cyan);
+            text-transform: uppercase;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .cyber-button:hover:not(:disabled) {
+            background: var(--neon-cyan);
+            color: var(--dark-bg);
+            box-shadow: 0 0 15px var(--neon-cyan);
+        }
+
+        .cyber-button:disabled {
+            border-color: #444;
+            color: #444;
+            cursor: not-allowed;
+        }
+
+        /* Shake animation for hits */
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(1px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+
+        .shake-screen {
+            animation: shake 0.4s;
+        }
+
+        /* Initialization Overlay */
+        #init-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(2, 5, 10, 0.85); /* Semi-transparent now */
+            backdrop-filter: blur(8px);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: opacity 0.5s ease;
+        }
+
+        .pulse-text {
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .ship-ghost {
+            background-color: rgba(0, 243, 255, 0.4);
+        }
+        .ship-ghost-invalid {
+            background-color: rgba(255, 51, 51, 0.4);
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-start p-4 md:p-8">
+
+    <div class="scanlines"></div>
+
+    <!-- Initialization Screen (Required for Web Audio API context starting) -->
+    <div id="init-overlay" onclick="initGame()">
+        <h1 class="text-4xl md:text-6xl font-bold text-[#00f3ff] glow-text mb-8 tracking-widest text-center">NEON FLEET</h1>
+        <div class="cyber-button px-8 py-4 text-xl pulse-text font-bold bg-[#00f3ff]/10">
+            CLICK ANYWHERE TO INITIALIZE UPLINK
+        </div>
+    </div>
+
+    <!-- Main Game Container (Now visible immediately so grids can be seen behind the blur) -->
+    <div id="game-container" class="w-full max-w-6xl flex flex-col items-center gap-6 z-10 relative">
+        
+        <!-- Header -->
+        <header class="w-full text-center cyber-panel py-4 px-6 rounded-lg mb-4 flex flex-col md:flex-row justify-between items-center">
+            <h1 class="text-2xl md:text-3xl font-bold glow-text uppercase tracking-widest">Tactical Command</h1>
+            <div id="status-display" class="text-lg md:text-xl text-[#ff00ff] font-bold tracking-wide mt-2 md:mt-0 glow-text animate-pulse">
+                SYSTEM STANDBY
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <div class="flex flex-col lg:flex-row gap-8 w-full justify-center">
+            
+            <!-- Player Board Area -->
+            <div class="flex flex-col items-center w-full lg:w-1/2">
+                <h2 class="text-xl mb-3 glow-text flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    ALLIED SECTOR (YOU)
+                </h2>
+                
+                <div class="relative overflow-hidden rounded-md p-1 bg-[#00f3ff]/20 w-full max-w-[400px]">
+                    <div id="player-board" class="game-board">
+                        <div class="radar-sweep"></div>
+                        <!-- Cells generated by JS -->
+                    </div>
+                </div>
+
+                <!-- Setup Controls -->
+                <div id="setup-controls" class="cyber-panel w-full max-w-[400px] mt-6 p-4 flex flex-col gap-3 rounded opacity-50 pointer-events-none transition-opacity duration-300">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-sm uppercase">Ship: <span id="current-ship-name" class="font-bold text-[#00ff66]">Carrier [5]</span></span>
+                        <button onclick="toggleRotation()" class="cyber-button px-3 py-1 text-xs">Rotate (R)</button>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="autoDeploy()" class="cyber-button flex-1 py-2 font-bold">Auto Deploy</button>
+                    </div>
+                </div>
+
+                <!-- Stats Panel (Playing phase) -->
+                <div id="player-stats" class="cyber-panel w-full max-w-[400px] mt-6 p-4 hidden flex-col gap-2 rounded">
+                    <div class="flex justify-between text-sm uppercase">
+                        <span>Fleet Status:</span>
+                        <span id="player-hp" class="text-[#00ff66]">100%</span>
+                    </div>
+                    <div class="w-full bg-gray-800 h-2 rounded overflow-hidden">
+                        <div id="player-hp-bar" class="bg-[#00ff66] h-full w-full transition-all duration-500 shadow-[0_0_10px_#00ff66]"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enemy Board Area -->
+            <div class="flex flex-col items-center w-full lg:w-1/2 opacity-50 transition-opacity duration-500" id="enemy-area">
+                <h2 class="text-xl mb-3 text-[#ff3333] glow-text-red flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                    HOSTILE SECTOR
+                </h2>
+                
+                <div class="relative overflow-hidden rounded-md p-1 bg-[#ff3333]/20 w-full max-w-[400px]">
+                    <div id="enemy-board" class="game-board pointer-events-none">
+                        <div class="radar-sweep" style="background: conic-gradient(from 0deg, transparent 70%, rgba(255, 51, 51, 0.4) 100%);"></div>
+                        <!-- Cells generated by JS -->
+                    </div>
+                </div>
+
+                <div id="enemy-stats" class="cyber-panel w-full max-w-[400px] mt-6 p-4 hidden flex-col gap-2 rounded border-[#ff3333]/50">
+                     <div class="flex justify-between text-sm uppercase text-[#ff3333]">
+                        <span>Hostile Integrity:</span>
+                        <span id="enemy-hp">100%</span>
+                    </div>
+                    <div class="w-full bg-gray-800 h-2 rounded overflow-hidden">
+                        <div id="enemy-hp-bar" class="bg-[#ff3333] h-full w-full transition-all duration-500 shadow-[0_0_10px_#ff3333]"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Combat Log -->
+        <div class="cyber-panel w-full mt-4 p-4 rounded h-32 overflow-y-auto flex flex-col-reverse text-sm font-mono" id="combat-log">
+            <!-- Logs injected here -->
+        </div>
+
+    </div>
+
+    <script>
+        /** --- AUDIO SYNTHESIS SYSTEM (Web Audio API) --- **/
+        const AudioSys = {
+            ctx: null,
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            },
+            playLaser() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.3);
+                
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.3);
+            },
+            playHit() {
+                if (!this.ctx) return;
+                const bufferSize = this.ctx.sampleRate * 0.5;
+                const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                
+                const noise = this.ctx.createBufferSource();
+                noise.buffer = buffer;
+                
+                const noiseFilter = this.ctx.createBiquadFilter();
+                noiseFilter.type = 'lowpass';
+                noiseFilter.frequency.setValueAtTime(1000, this.ctx.currentTime);
+                noiseFilter.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.5);
+                
+                const noiseGain = this.ctx.createGain();
+                noiseGain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+                noiseGain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.5);
+                
+                noise.connect(noiseFilter);
+                noiseFilter.connect(noiseGain);
+                noiseGain.connect(this.ctx.destination);
+                
+                noise.start();
+            },
+            playMiss() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(400, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(200, this.ctx.currentTime + 0.2);
+                
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.2);
+            },
+            playAlarm() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+                osc.frequency.setValueAtTime(300, this.ctx.currentTime + 0.1);
+                osc.frequency.setValueAtTime(200, this.ctx.currentTime + 0.2);
+                
+                gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.3);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.3);
+            }
+        };
+
+        /** --- GAME CONSTANTS & STATE --- **/
+        const GRID_SIZE = 10;
+        const SHIPS = [
+            { name: 'Carrier', size: 5, color: '#00ff66' },
+            { name: 'Battleship', size: 4, color: '#00ff66' },
+            { name: 'Cruiser', size: 3, color: '#00ff66' },
+            { name: 'Submarine', size: 3, color: '#00ff66' },
+            { name: 'Destroyer', size: 2, color: '#00ff66' }
+        ];
+
+        let state = {
+            phase: 'init', // init, placement, playing, over
+            playerGrid: [], 
+            enemyGrid: [], 
+            playerHits: 0,
+            enemyHits: 0,
+            totalHp: SHIPS.reduce((sum, ship) => sum + ship.size, 0),
+            placement: {
+                shipIndex: 0,
+                isVertical: false
+            },
+            ai: {
+                targets: [],
+                lastHit: null
+            },
+            initEventsBound: false
+        };
+
+        /** --- INITIAL SETUP ON LOAD --- **/
+        window.addEventListener('DOMContentLoaded', () => {
+            // Generate empty grids in memory immediately
+            for (let i = 0; i < GRID_SIZE; i++) {
+                state.playerGrid.push(new Array(GRID_SIZE).fill(null));
+                state.enemyGrid.push(new Array(GRID_SIZE).fill(null));
+            }
+
+            // Draw grids immediately behind the blur overlay
+            renderBoard('player-board', true);
+            renderBoard('enemy-board', false);
+        });
+
+        /** --- START GAME ON CLICK --- **/
+        function initGame() {
+            // Hide intro screen
+            document.getElementById('init-overlay').style.opacity = '0';
+            setTimeout(() => {
+                document.getElementById('init-overlay').style.display = 'none';
+            }, 500);
+            
+            // Enable deployment UI
+            document.getElementById('setup-controls').classList.remove('opacity-50', 'pointer-events-none');
+            
+            // Initialize audio engine
+            AudioSys.init();
+            
+            state.phase = 'placement';
+            updateStatus('COMMENCE FLEET DEPLOYMENT');
+            logMsg('System online. Awaiting deployment coordinates.');
+
+            // Key listener for rotation
+            if (!state.initEventsBound) {
+                document.addEventListener('keydown', (e) => {
+                    if (e.key.toLowerCase() === 'r' && state.phase === 'placement') {
+                        toggleRotation();
+                    }
+                });
+                state.initEventsBound = true;
+            }
+        }
+
+        /** --- UI & RENDERING --- **/
+        function renderBoard(elementId, isPlayer) {
+            const board = document.getElementById(elementId);
+            
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.x = x;
+                    cell.dataset.y = y;
+
+                    if (isPlayer) {
+                        cell.addEventListener('mouseover', () => handleHover(x, y));
+                        cell.addEventListener('mouseout', clearHover);
+                        cell.addEventListener('click', () => placeShip(x, y));
+                    } else {
+                        cell.addEventListener('click', () => attackEnemy(x, y));
+                    }
+
+                    board.appendChild(cell);
+                }
+            }
+        }
+
+        function updateStatus(msg, colorClass = 'text-[#00f3ff]') {
+            const statusEl = document.getElementById('status-display');
+            statusEl.textContent = msg;
+            statusEl.className = `text-lg md:text-xl font-bold tracking-wide mt-2 md:mt-0 glow-text animate-pulse ${colorClass}`;
+        }
+
+        function logMsg(msg, isAlert = false) {
+            const log = document.getElementById('combat-log');
+            const entry = document.createElement('div');
+            entry.textContent = `> ${msg}`;
+            entry.className = `mb-1 opacity-80 ${isAlert ? 'text-[#ff3333]' : 'text-[#00f3ff]'}`;
+            log.prepend(entry);
+        }
+
+        /** --- SHIP PLACEMENT (PLAYER) --- **/
+        function toggleRotation() {
+            state.placement.isVertical = !state.placement.isVertical;
+            AudioSys.playMiss(); 
+            logMsg(`Rotation mode: ${state.placement.isVertical ? 'VERTICAL' : 'HORIZONTAL'}`);
+        }
+
+        function getShipCoords(x, y, size, isVertical) {
+            const coords = [];
+            for (let i = 0; i < size; i++) {
+                coords.push({
+                    x: isVertical ? x : x + i,
+                    y: isVertical ? y + i : y
+                });
+            }
+            return coords;
+        }
+
+        function isValidPlacement(grid, coords) {
+            return coords.every(c => c.x >= 0 && c.x < GRID_SIZE && c.y >= 0 && c.y < GRID_SIZE && grid[c.y][c.x] === null);
+        }
+
+        function handleHover(x, y) {
+            if (state.phase !== 'placement') return;
+            const ship = SHIPS[state.placement.shipIndex];
+            const coords = getShipCoords(x, y, ship.size, state.placement.isVertical);
+            const valid = isValidPlacement(state.playerGrid, coords);
+
+            coords.forEach(c => {
+                if (c.x < GRID_SIZE && c.y < GRID_SIZE) {
+                    const cell = document.querySelector(`#player-board .cell[data-x="${c.x}"][data-y="${c.y}"]`);
+                    if (cell) {
+                        cell.classList.add(valid ? 'ship-ghost' : 'ship-ghost-invalid');
+                    }
+                }
+            });
+        }
+
+        function clearHover() {
+            document.querySelectorAll('#player-board .cell').forEach(c => {
+                c.classList.remove('ship-ghost', 'ship-ghost-invalid');
+            });
+        }
+
+        function placeShip(x, y) {
+            if (state.phase !== 'placement') return;
+            
+            const ship = SHIPS[state.placement.shipIndex];
+            const coords = getShipCoords(x, y, ship.size, state.placement.isVertical);
+            
+            if (isValidPlacement(state.playerGrid, coords)) {
+                AudioSys.playAlarm();
+                
+                coords.forEach(c => {
+                    state.playerGrid[c.y][c.x] = { ...ship, isHit: false };
+                    const cell = document.querySelector(`#player-board .cell[data-x="${c.x}"][data-y="${c.y}"]`);
+                    cell.classList.add('ship');
+                });
+
+                state.placement.shipIndex++;
+                clearHover();
+
+                if (state.placement.shipIndex >= SHIPS.length) {
+                    finishDeployment();
+                } else {
+                    const nextShip = SHIPS[state.placement.shipIndex];
+                    document.getElementById('current-ship-name').textContent = `${nextShip.name} [${nextShip.size}]`;
+                }
+            } else {
+                AudioSys.playMiss();
+            }
+        }
+
+        function autoDeploy() {
+            if (state.phase !== 'placement') return;
+            
+            state.playerGrid = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null));
+            document.querySelectorAll('#player-board .cell').forEach(c => c.classList.remove('ship'));
+
+            SHIPS.forEach(ship => {
+                let placed = false;
+                while (!placed) {
+                    const isVertical = Math.random() > 0.5;
+                    const x = Math.floor(Math.random() * GRID_SIZE);
+                    const y = Math.floor(Math.random() * GRID_SIZE);
+                    const coords = getShipCoords(x, y, ship.size, isVertical);
+                    
+                    if (isValidPlacement(state.playerGrid, coords)) {
+                        coords.forEach(c => {
+                            state.playerGrid[c.y][c.x] = { ...ship, isHit: false };
+                            const cell = document.querySelector(`#player-board .cell[data-x="${c.x}"][data-y="${c.y}"]`);
+                            cell.classList.add('ship');
+                        });
+                        placed = true;
+                    }
+                }
+            });
+            AudioSys.playAlarm();
+            finishDeployment();
+        }
+
+        function finishDeployment() {
+            document.getElementById('setup-controls').classList.add('hidden');
+            document.getElementById('player-stats').classList.remove('hidden');
+            document.getElementById('enemy-stats').classList.remove('hidden');
+            document.getElementById('enemy-area').classList.remove('opacity-50');
+            document.getElementById('enemy-board').classList.add('board-active');
+            document.getElementById('enemy-board').classList.remove('pointer-events-none');
+            
+            deployEnemyAI();
+            
+            state.phase = 'playing';
+            updateStatus('TACTICAL ENGAGEMENT: AWAITING ORDERS', 'text-[#ff00ff]');
+            logMsg('Deployment complete. Weapons hot. Designate target coordinates.');
+        }
+
+        /** --- AI DEPLOYMENT --- **/
+        function deployEnemyAI() {
+            SHIPS.forEach(ship => {
+                let placed = false;
+                while (!placed) {
+                    const isVertical = Math.random() > 0.5;
+                    const x = Math.floor(Math.random() * GRID_SIZE);
+                    const y = Math.floor(Math.random() * GRID_SIZE);
+                    const coords = getShipCoords(x, y, ship.size, isVertical);
+                    
+                    if (isValidPlacement(state.enemyGrid, coords)) {
+                        coords.forEach(c => {
+                            state.enemyGrid[c.y][c.x] = { ...ship, isHit: false };
+                        });
+                        placed = true;
+                    }
+                }
+            });
+        }
+
+        /** --- COMBAT SYSTEM --- **/
+        function triggerShake() {
+            document.body.classList.remove('shake-screen');
+            void document.body.offsetWidth; 
+            document.body.classList.add('shake-screen');
+            setTimeout(() => document.body.classList.remove('shake-screen'), 400);
+        }
+
+        function createMarker(type) {
+            const el = document.createElement('div');
+            el.className = `marker ${type}-marker`;
+            return el;
+        }
+
+        function attackEnemy(x, y) {
+            if (state.phase !== 'playing') return;
+
+            const cellData = state.enemyGrid[y][x];
+            const cellEl = document.querySelector(`#enemy-board .cell[data-x="${x}"][data-y="${y}"]`);
+
+            if (cellData === 'miss' || (cellData && cellData.isHit)) return;
+
+            AudioSys.playLaser();
+
+            setTimeout(() => {
+                if (cellData && cellData.name) {
+                    state.enemyGrid[y][x].isHit = true;
+                    cellEl.classList.add('hit');
+                    cellEl.appendChild(createMarker('hit'));
+                    AudioSys.playHit();
+                    triggerShake();
+                    state.enemyHits++;
+                    updateHP('enemy');
+                    logMsg(`ALLIED STRIKE: Confirmed HIT at [${x},${y}]!`, false);
+                    
+                    checkWinCondition();
+                } else {
+                    state.enemyGrid[y][x] = 'miss';
+                    cellEl.classList.add('miss');
+                    cellEl.appendChild(createMarker('miss'));
+                    AudioSys.playMiss();
+                    logMsg(`ALLIED STRIKE: Missed at [${x},${y}].`);
+                }
+
+                if (state.phase === 'playing') {
+                    document.getElementById('enemy-board').classList.add('pointer-events-none');
+                    document.getElementById('enemy-board').classList.remove('board-active');
+                    setTimeout(enemyTurn, 800);
+                }
+            }, 300); 
+        }
+
+        function enemyTurn() {
+            if (state.phase !== 'playing') return;
+
+            let x, y;
+            
+            if (state.ai.targets.length > 0) {
+                let target;
+                do {
+                    target = state.ai.targets.pop();
+                } while (target && !isValidTarget(target.x, target.y));
+
+                if (target) {
+                    x = target.x;
+                    y = target.y;
+                } else {
+                    ({x, y} = getRandomTarget());
+                }
+            } else {
+                ({x, y} = getRandomTarget());
+            }
+
+            AudioSys.playLaser();
+            updateStatus('HOSTILE INCOMING...', 'text-[#ff3333]');
+
+            setTimeout(() => {
+                const cellData = state.playerGrid[y][x];
+                const cellEl = document.querySelector(`#player-board .cell[data-x="${x}"][data-y="${y}"]`);
+
+                if (cellData && cellData.name) {
+                    state.playerGrid[y][x].isHit = true;
+                    cellEl.classList.add('hit');
+                    cellEl.appendChild(createMarker('hit'));
+                    AudioSys.playHit();
+                    triggerShake();
+                    state.playerHits++;
+                    updateHP('player');
+                    logMsg(`WARNING: Structural damage detected at [${x},${y}]!`, true);
+                    
+                    addAITargets(x, y);
+                    checkWinCondition();
+                } else {
+                    state.playerGrid[y][x] = 'miss';
+                    cellEl.classList.add('miss');
+                    cellEl.appendChild(createMarker('miss'));
+                    AudioSys.playMiss();
+                    logMsg(`Hostile strike missed at [${x},${y}].`);
+                }
+
+                if (state.phase === 'playing') {
+                    document.getElementById('enemy-board').classList.remove('pointer-events-none');
+                    document.getElementById('enemy-board').classList.add('board-active');
+                    updateStatus('TACTICAL ENGAGEMENT: AWAITING ORDERS', 'text-[#ff00ff]');
+                }
+            }, 300);
+        }
+
+        function isValidTarget(x, y) {
+            if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return false;
+            const cell = state.playerGrid[y][x];
+            return cell !== 'miss' && !(cell && cell.isHit);
+        }
+
+        function getRandomTarget() {
+            let x, y;
+            do {
+                x = Math.floor(Math.random() * GRID_SIZE);
+                y = Math.floor(Math.random() * GRID_SIZE);
+            } while (!isValidTarget(x, y));
+            return {x, y};
+        }
+
+        function addAITargets(x, y) {
+            const potentials = [
+                {x: x, y: y-1}, {x: x, y: y+1},
+                {x: x-1, y: y}, {x: x+1, y: y}
+            ];
+            potentials.sort(() => Math.random() - 0.5).forEach(pos => {
+                if (isValidTarget(pos.x, pos.y)) {
+                    state.ai.targets.push(pos);
+                }
+            });
+        }
+
+        function updateHP(side) {
+            const hits = side === 'player' ? state.playerHits : state.enemyHits;
+            const pct = Math.max(0, 100 - (hits / state.totalHp * 100));
+            
+            document.getElementById(`${side}-hp`).textContent = `${Math.round(pct)}%`;
+            document.getElementById(`${side}-hp-bar`).style.width = `${pct}%`;
+            
+            if (pct < 30) {
+                document.getElementById(`${side}-hp-bar`).style.backgroundColor = 'var(--neon-red)';
+                document.getElementById(`${side}-hp-bar`).style.boxShadow = '0 0 10px var(--neon-red)';
+                if(side === 'player') document.getElementById('player-hp').classList.add('text-[#ff3333]', 'animate-pulse');
+            }
+        }
+
+        function checkWinCondition() {
+            if (state.enemyHits >= state.totalHp) {
+                state.phase = 'over';
+                endGame(true);
+            } else if (state.playerHits >= state.totalHp) {
+                state.phase = 'over';
+                endGame(false);
+            }
+        }
+
+        function endGame(playerWon) {
+            document.getElementById('enemy-board').classList.add('pointer-events-none');
+            
+            if (playerWon) {
+                updateStatus('VICTORY: HOSTILE FLEET ANNIHILATED', 'text-[#00ff66]');
+                logMsg('*** TACTICAL VICTORY ACHIEVED ***', false);
+                document.getElementById('enemy-board').style.opacity = '0.3';
+            } else {
+                updateStatus('DEFEAT: ALLIED FLEET DESTROYED', 'text-[#ff3333]');
+                logMsg('*** CRITICAL FAILURE. SYSTEM OFFLINE ***', true);
+                document.getElementById('player-board').style.opacity = '0.3';
+                for (let y = 0; y < GRID_SIZE; y++) {
+                    for (let x = 0; x < GRID_SIZE; x++) {
+                        const cellData = state.enemyGrid[y][x];
+                        if (cellData && cellData.name && !cellData.isHit) {
+                            const cellEl = document.querySelector(`#enemy-board .cell[data-x="${x}"][data-y="${y}"]`);
+                            cellEl.classList.add('ship');
+                            cellEl.style.backgroundColor = 'rgba(255, 51, 51, 0.3)';
+                        }
+                    }
+                }
+            }
+
+            const restartBtn = document.createElement('button');
+            restartBtn.className = 'cyber-button px-8 py-4 mt-6 text-xl font-bold animate-pulse mx-auto block';
+            restartBtn.textContent = 'REBOOT SYSTEM';
+            restartBtn.onclick = () => location.reload();
+            document.getElementById('game-container').appendChild(restartBtn);
+        }
+
+    </script>
+</body>
+</html>
