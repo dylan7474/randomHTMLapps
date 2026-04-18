@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Active Acoustic Sensing - Calibration</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        canvas { background-color: #020617; border-radius: 0.5rem; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+    </style>
+</head>
+<body class="min-h-screen p-6 flex flex-col items-center">
+
+    <div class="w-full max-w-4xl space-y-6">
+        <header class="text-center space-y-2">
+            <h1 class="text-3xl font-bold text-cyan-400 tracking-wider">Acoustic Sonar: Calibration Protocol</h1>
+            <p class="text-slate-400">Establish the environmental noise floor and static reflection baseline.</p>
+        </header>
+
+        <!-- Status Panel -->
+        <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="w-full md:w-auto">
+                <h2 class="text-sm text-slate-400 uppercase tracking-widest font-semibold">System Status</h2>
+                <p id="status-text" class="text-lg text-emerald-400 font-mono mt-1">Awaiting Initialization...</p>
+            </div>
+            
+            <!-- NEW: Live Mic Level Meter -->
+            <div class="flex items-center gap-3 w-full md:w-1/3 bg-slate-900 p-2 rounded-lg border border-slate-700">
+                <span class="text-[10px] text-slate-400 font-mono tracking-widest">MIC LEVEL</span>
+                <div class="flex-1 h-3 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                    <div id="mic-level-bar" class="h-full bg-green-500 w-0 transition-all duration-75"></div>
+                </div>
+                <div id="mic-indicator" class="h-3 w-3 rounded-full bg-red-500 animate-pulse"></div>
+            </div>
+        </div>
+
+        <!-- Visualizer -->
+        <div class="relative w-full aspect-video md:aspect-[21/9]">
+            <canvas id="visualizer" class="absolute inset-0 w-full h-full"></canvas>
+            
+            <!-- Overlay Labels -->
+            <div class="absolute top-2 left-4 flex gap-4 text-xs font-mono">
+                <span class="text-cyan-400">■ Cleaned Spectrum</span>
+                <span class="text-cyan-900">■ Raw Spectrum</span>
+                <span class="text-red-500">■ Noise Floor</span>
+                <span class="text-purple-400">■ Sonar Band</span>
+            </div>
+        </div>
+
+        <!-- Radar Display (New) -->
+        <div class="relative w-full aspect-square md:aspect-video bg-slate-900 rounded-xl border border-slate-700 hidden" id="radar-container">
+            <canvas id="radar" class="absolute inset-0 w-full h-full rounded-xl"></canvas>
+            <div class="absolute top-2 left-4 text-xs font-mono text-emerald-400">
+                <span>■ Sonar Active: Detecting Dynamic Anomalies</span>
+            </div>
+            <div class="absolute bottom-2 left-0 right-0 text-center text-xs text-slate-500 font-mono">
+                Laptop Field of View
+            </div>
+        </div>
+
+        <!-- Tuner (New) -->
+        <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col gap-2">
+            <div class="flex justify-between text-sm font-mono text-slate-400">
+                <span>Sonar Frequency Tuner: <span id="freq-display" class="text-purple-400 font-bold">20000 Hz</span></span>
+                <span>(Lower this if no spike appears)</span>
+            </div>
+            <input type="range" id="freq-slider" min="8000" max="22000" value="20000" step="100" class="w-full accent-purple-500">
+        </div>
+
+        <!-- Controls -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button id="btn-init" class="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-3 px-4 rounded-lg transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                1. Init Audio Engine
+            </button>
+            <button id="btn-noise" disabled class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 px-4 rounded-lg transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed border border-slate-600">
+                2. Calibrate Noise Floor
+            </button>
+            <button id="btn-radar" disabled class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 px-4 rounded-lg transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed border border-slate-600 hidden">
+                3. Start Sonar
+            </button>
+        </div>
+
+        <!-- Log Output -->
+        <div class="bg-black p-4 rounded-lg font-mono text-sm text-green-400 h-40 overflow-y-auto border border-slate-800" id="log-output">
+            > System ready. Waiting for user initialization.<br>
+        </div>
+    </div>
+
+    <script>
+        // --- Web Audio API Variables ---
+        let audioContext;
+        let analyser;
+        let microphone;
+        let dataArray;
+        let animationId;
+        
+        // Calibration Data Arrays
+        let noiseFloorProfile = null;
+        let staticReflectionProfile = null;
+        
+        // Settings
+        const FFT_SIZE = 4096; // High resolution for frequency bins
+        
+        // UI Elements
+        const statusText = document.getElementById('status-text');
+        const micIndicator = document.getElementById('mic-indicator');
+        const micLevelBar = document.getElementById('mic-level-bar');
+        const canvas = document.getElementById('visualizer');
+        const canvasCtx = canvas.getContext('2d');
+        const logOutput = document.getElementById('log-output');
+        
+        const btnInit = document.getElementById('btn-init');
+        const btnNoise = document.getElementById('btn-noise');
+        const btnRadar = document.getElementById('btn-radar');
+        const radarContainer = document.getElementById('radar-container');
+        const radarCanvas = document.getElementById('radar');
+        const radarCtx = radarCanvas.getContext('2d');
+
+        // New Tuner Elements
+        const freqSlider = document.getElementById('freq-slider');
+        const freqDisplay = document.getElementById('freq-display');
+
+        let isRadarActive = false;
+        let radarAngle = 0;
+        let blips = [];
+        let sonarOscillator = null;
+        let targetFreq = 20000;
+        let liveBaseline = null; // NEW: Temporal moving average array
+
+        // Tuner Logic
+        freqSlider.addEventListener('input', (e) => {
+            targetFreq = parseInt(e.target.value);
+            freqDisplay.textContent = targetFreq + " Hz";
+            if (sonarOscillator) {
+                sonarOscillator.frequency.value = targetFreq;
+            }
+        });
+
+        function log(message) {
+            const time = new Date().toLocaleTimeString();
+            logOutput.innerHTML += `> [${time}] ${message}<br>`;
+            logOutput.scrollTop = logOutput.scrollHeight;
+        }
+
+        function setStatus(text, colorClass = "text-emerald-400") {
+            statusText.textContent = text;
+            statusText.className = `text-lg font-mono mt-1 ${colorClass}`;
+        }
+
+        // --- Resize Canvas ---
+        function resizeCanvas() {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+            if(!radarContainer.classList.contains('hidden')){
+                radarCanvas.width = radarCanvas.clientWidth;
+                radarCanvas.height = radarCanvas.clientHeight;
+            }
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // --- Step 1: Initialization ---
+        btnInit.addEventListener('click', async () => {
+            try {
+                log("Requesting microphone permissions...");
+                // Note: We request autoGainControl and echoCancellation to be false. 
+                // We want raw audio for sonar, not OS-filtered audio.
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { 
+                        echoCancellation: false, 
+                        autoGainControl: false, 
+                        noiseSuppression: false 
+                    } 
+                });
+                
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Set up Analyser
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = FFT_SIZE;
+                analyser.smoothingTimeConstant = 0.5; // Slight smoothing
+                
+                const bufferLength = analyser.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+                
+                // Connect Mic to Analyser (but not to destination to avoid feedback)
+                microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
+
+                log(`Audio Engine initialized. Sample Rate: ${audioContext.sampleRate}Hz`);
+                log(`Nyquist Frequency: ${audioContext.sampleRate / 2}Hz`);
+                
+                micIndicator.classList.remove('bg-red-500');
+                micIndicator.classList.add('bg-green-500');
+                
+                btnInit.disabled = true;
+                btnInit.classList.replace('bg-cyan-600', 'bg-slate-700');
+                btnNoise.disabled = false;
+                btnNoise.classList.replace('bg-slate-700', 'bg-cyan-600');
+                
+                setStatus("Audio Engine Running. Ready for Noise Calibration.");
+                
+                // Start Visualizer
+                drawVisualizer();
+                
+            } catch (err) {
+                log(`ERROR: Microphone access denied or failed. (${err.message})`);
+                setStatus("Initialization Failed", "text-red-500");
+            }
+        });
+
+        // --- Step 2: Noise Floor Calibration ---
+        btnNoise.addEventListener('click', () => {
+            if (!audioContext) return;
+            
+            btnNoise.disabled = true;
+            setStatus("Analyzing Room Noise... Please remain quiet.", "text-yellow-400");
+            log("Starting 3-second noise floor calibration...");
+            
+            const bufferLength = analyser.frequencyBinCount;
+            let tempProfiles = [];
+            let iterations = 0;
+            const maxIterations = 60; // Approx 1 second at 60fps
+            
+            noiseFloorProfile = new Uint8Array(bufferLength);
+            
+            // Sample the environment over a short period
+            const samplingInterval = setInterval(() => {
+                let currentData = new Uint8Array(bufferLength);
+                analyser.getByteFrequencyData(currentData);
+                tempProfiles.push(currentData);
+                
+                iterations++;
+                if (iterations >= maxIterations) {
+                    clearInterval(samplingInterval);
+                    
+                    // Calculate Average Noise Profile
+                    for (let i = 0; i < bufferLength; i++) {
+                        let sum = 0;
+                        for (let j = 0; j < tempProfiles.length; j++) {
+                            sum += tempProfiles[j][i];
+                        }
+                        noiseFloorProfile[i] = Math.floor(sum / tempProfiles.length);
+                    }
+                    
+                    log("Noise floor calibration complete.");
+                    setStatus("System Ready. Start Sonar to begin tracking.", "text-cyan-400");
+                    
+                    btnNoise.classList.replace('bg-cyan-600', 'bg-slate-700');
+                    
+                    // Directly enable Radar
+                    btnRadar.disabled = false;
+                    btnRadar.classList.replace('bg-slate-700', 'bg-emerald-600');
+                    btnRadar.classList.remove('hidden');
+                    resizeCanvas();
+                }
+            }, 50); // Sample every 50ms (3 seconds total)
+        });
+
+        // --- Step 3: Active Sonar / Radar Display ---
+        btnRadar.addEventListener('click', () => {
+            isRadarActive = !isRadarActive;
+            
+            if (isRadarActive) {
+                btnRadar.textContent = "Stop Sonar";
+                btnRadar.classList.replace('bg-emerald-600', 'bg-red-600');
+                radarContainer.classList.remove('hidden');
+                resizeCanvas();
+
+                // Reset the temporal baseline for a clean start
+                if (analyser) {
+                    liveBaseline = new Float32Array(analyser.frequencyBinCount);
+                }
+
+                log(`Doppler Sonar activated. Emitting continuous ${targetFreq}Hz wave...`);
+                setStatus("Sonar Active. Scanning for movement...", "text-emerald-400");
+                
+                // Switch to Continuous Wave (CW) Doppler for reliable browser detection
+                sonarOscillator = audioContext.createOscillator();
+                sonarOscillator.type = 'sine';
+                sonarOscillator.frequency.value = targetFreq; 
+                sonarOscillator.connect(audioContext.destination);
+                sonarOscillator.start();
+                
+                requestAnimationFrame(drawRadar);
+            } else {
+                btnRadar.textContent = "3. Start Sonar";
+                btnRadar.classList.replace('bg-red-600', 'bg-emerald-600');
+                radarContainer.classList.add('hidden');
+                log("Sonar deactivated.");
+                setStatus("System Calibrated & Ready.", "text-cyan-400");
+                
+                if (sonarOscillator) {
+                    sonarOscillator.stop();
+                    sonarOscillator.disconnect();
+                    sonarOscillator = null;
+                }
+            }
+        });
+
+        function emitPing() {
+            if (!audioContext) return;
+            const osc = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            osc.type = 'sine';
+            
+            // Very short, sharp chirp (18k -> 22k over 50ms)
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(1, audioContext.currentTime + 0.01);
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.05);
+            
+            osc.frequency.setValueAtTime(18000, audioContext.currentTime);
+            osc.frequency.linearRampToValueAtTime(22000, audioContext.currentTime + 0.05);
+            
+            osc.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            osc.start();
+            osc.stop(audioContext.currentTime + 0.06);
+        }
+
+        function drawRadar() {
+            if (!isRadarActive) return;
+            requestAnimationFrame(drawRadar);
+
+            const w = radarCanvas.width;
+            const h = radarCanvas.height;
+            const cx = w / 2;
+            const cy = h; // Bottom center (laptop only sees a cone in front)
+            const radius = Math.min(w/2, h) - 20;
+
+            // Fade effect for radar screen (motion blur)
+            radarCtx.fillStyle = 'rgba(2, 6, 23, 0.15)';
+            radarCtx.fillRect(0, 0, w, h);
+
+            // Draw Grid
+            radarCtx.strokeStyle = 'rgba(16, 185, 129, 0.2)';
+            radarCtx.lineWidth = 1;
+            radarCtx.beginPath();
+            for(let r = 1; r <= 4; r++) {
+                radarCtx.arc(cx, cy, radius * (r/4), Math.PI, 0); // Semi-circles
+            }
+            radarCtx.stroke();
+
+            // Move sweep angle (sweep from left to right and back)
+            radarAngle += 0.02; // Sweep speed
+            // Math magic to make it oscillate back and forth across the top half
+            const currentSweepAngle = Math.PI + ((Math.sin(radarAngle) + 1) / 2) * Math.PI;
+            const sweepX = cx + Math.cos(currentSweepAngle) * radius;
+            const sweepY = cy + Math.sin(currentSweepAngle) * radius;
+
+            // Draw Sweep Line
+            radarCtx.strokeStyle = 'rgba(16, 185, 129, 0.8)';
+            radarCtx.lineWidth = 2;
+            radarCtx.beginPath();
+            radarCtx.moveTo(cx, cy);
+            radarCtx.lineTo(sweepX, sweepY);
+            radarCtx.stroke();
+
+            // Draw Blips (decaying over time)
+            for (let i = blips.length - 1; i >= 0; i--) {
+                let blip = blips[i];
+                blip.life -= 0.015;
+                if (blip.life <= 0) {
+                    blips.splice(i, 1);
+                    continue;
+                }
+                radarCtx.fillStyle = `rgba(16, 185, 129, ${blip.life})`;
+                radarCtx.beginPath();
+                radarCtx.arc(blip.x, blip.y, 3 + (1-blip.life)*6, 0, Math.PI * 2);
+                radarCtx.fill();
+            }
+        }
+
+        // --- Visualization Loop ---
+        function drawVisualizer() {
+            animationId = requestAnimationFrame(drawVisualizer);
+            
+            if (!analyser) return;
+
+            analyser.getByteFrequencyData(dataArray);
+            
+            canvasCtx.fillStyle = '#020617'; // Deep bg
+            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const bufferLength = analyser.frequencyBinCount;
+            const barWidth = (canvas.width / bufferLength) * 2.5;
+            let x = 0;
+
+            // Initialize live baseline if it's missing
+            if (!liveBaseline || liveBaseline.length !== bufferLength) {
+                liveBaseline = new Float32Array(bufferLength);
+                for(let i=0; i<bufferLength; i++) liveBaseline[i] = dataArray[i];
+            }
+            
+            // Calculate indices based on dynamic target frequency
+            const nyquist = audioContext.sampleRate / 2;
+            const indexFreq = Math.floor((targetFreq / nyquist) * bufferLength);
+            
+            // Highlight a 4kHz band around our target frequency (e.g., +/- 2000Hz)
+            const indexLowerBound = Math.floor(((targetFreq - 2000) / nyquist) * bufferLength);
+            const indexUpperBound = Math.floor(((targetFreq + 2000) / nyquist) * bufferLength);
+            
+            // NEW: Calculate average mic volume for the test meter
+            let sumVolume = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                sumVolume += dataArray[i];
+            }
+            const avgVolume = sumVolume / bufferLength;
+            const volumePercent = Math.min(100, (avgVolume / 64) * 100); 
+            
+            // Update Mic Level Bar UI
+            micLevelBar.style.width = volumePercent + '%';
+            if (volumePercent > 80) micLevelBar.style.backgroundColor = '#ef4444'; // Red
+            else if (volumePercent > 40) micLevelBar.style.backgroundColor = '#facc15'; // Yellow
+            else micLevelBar.style.backgroundColor = '#22c55e'; // Green
+
+            // Hit detection variables for Radar
+            let anomalyDetected = false;
+            let peakAnomalyIndex = 0;
+            let peakAnomalyValue = 0;
+
+            // Draw Sonar Band Highlight
+            const xLower = Math.max(0, indexLowerBound * barWidth);
+            const xUpper = Math.min(canvas.width, indexUpperBound * barWidth);
+            canvasCtx.fillStyle = 'rgba(168, 85, 247, 0.1)'; // Purple tint
+            canvasCtx.fillRect(xLower, 0, xUpper - xLower, canvas.height);
+
+            for (let i = 0; i < bufferLength; i++) {
+                // Update Temporal Baseline (Leaky Integrator)
+                // This slowly absorbs constant sounds (like the sonar tone) into the baseline 
+                // but reacts too slowly to hide fast motion, leaving a spike!
+                liveBaseline[i] = liveBaseline[i] * 0.92 + dataArray[i] * 0.08;
+
+                // Determine baseline to subtract. 
+                // If radar is ON, subtract the live moving average so only SUDDEN movement glows.
+                // If radar is OFF, subtract the quiet room noise.
+                const baselineValue = isRadarActive ? liveBaseline[i] : (noiseFloorProfile ? noiseFloorProfile[i] : 0);
+                
+                // Live Data & Cleaned Data
+                const rawValue = dataArray[i];
+                const cleanValue = Math.max(0, rawValue - baselineValue - 2); // -2 acts as a tiny noise gate
+                
+                const rawHeight = (rawValue / 255) * canvas.height;
+                const cleanHeight = (cleanValue / 255) * canvas.height;
+                
+                // 1. Draw Faint Raw Signal Background
+                if (i >= indexLowerBound && i <= indexUpperBound) {
+                    canvasCtx.fillStyle = 'rgba(168, 85, 247, 0.2)'; // Faint Purple
+                } else {
+                    canvasCtx.fillStyle = 'rgba(34, 211, 238, 0.2)'; // Faint Cyan
+                }
+                canvasCtx.fillRect(x, canvas.height - rawHeight, barWidth, rawHeight);
+
+                // 2. Draw Bright Cleaned Signal Foreground
+                if (cleanValue > 0 || !noiseFloorProfile) {
+                    if (i >= indexLowerBound && i <= indexUpperBound) {
+                        canvasCtx.fillStyle = '#a855f7'; // Bright Purple
+                    } else {
+                        canvasCtx.fillStyle = '#22d3ee'; // Bright Cyan
+                    }
+                    canvasCtx.fillRect(x, canvas.height - cleanHeight, barWidth, cleanHeight);
+                }
+                
+                // Draw Baseline if calibrated
+                if (baselineValue > 0) {
+                    const baselineHeight = (baselineValue / 255) * canvas.height;
+                    canvasCtx.fillStyle = isRadarActive ? 'rgba(168, 85, 247, 0.5)' : 'rgba(239, 68, 68, 0.5)'; // Purple if active, Red if quiet
+                    canvasCtx.fillRect(x, canvas.height - baselineHeight - 1, barWidth, 1);
+                }
+
+                // Anomaly Detection (Temporal Difference Doppler Method)
+                if (isRadarActive && i >= indexLowerBound && i <= indexUpperBound) {
+                    // Ignore the immediate 3 bins next to the carrier tone to avoid false triggers
+                    if (Math.abs(i - indexFreq) > 3) { 
+                        // cleanValue represents a SUDDEN spike over the moving average
+                        if (cleanValue > 6 && cleanValue > peakAnomalyValue) {
+                            peakAnomalyValue = cleanValue;
+                            peakAnomalyIndex = i;
+                            anomalyDetected = true;
+                        }
+                    }
+                }
+
+                x += barWidth + 1;
+            }
+
+            // Register Blip on Radar
+            if (anomalyDetected && isRadarActive) {
+                const w = radarCanvas.width;
+                const h = radarCanvas.height;
+                const cx = w / 2;
+                const cy = h;
+                const radius = Math.min(w/2, h) - 20;
+                
+                // Map the frequency bin shift to an abstract distance metric 
+                const distanceFactor = Math.abs(peakAnomalyIndex - indexFreq) / (indexUpperBound - indexFreq);
+                const r = radius * (0.2 + distanceFactor * 0.8);
+                
+                // Place it roughly near the current visual sweep line
+                const currentSweepAngle = Math.PI + ((Math.sin(radarAngle) + 1) / 2) * Math.PI;
+                
+                // Add a bit of visual scatter based on signal strength
+                const scatter = (Math.random() - 0.5) * 0.3; 
+                
+                blips.push({
+                    x: cx + Math.cos(currentSweepAngle + scatter) * r,
+                    y: cy + Math.sin(currentSweepAngle + scatter) * r,
+                    life: 1.0
+                });
+            }
+        }
+    </script>
+</body>
+</html>
