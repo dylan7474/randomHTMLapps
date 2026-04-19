@@ -4,7 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tropical Fish - Pro Aquarium</title>
+    <!-- Core Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Post-Processing Modules -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/BokehShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/BokehPass.js"></script>
+
     <style>
         body {
             margin: 0;
@@ -121,6 +132,7 @@
 
     <script>
         let scene, camera, renderer, clock;
+        let composer, bokehPass;
         let fishes = [];
         let crabs = [];
         let jellyfishes = [];
@@ -173,11 +185,11 @@
 
             clock = new THREE.Clock();
 
-            // Lighting
-            const ambientLight = new THREE.AmbientLight(0x005577, 1.8);
+            // Lighting (Toned down to prevent washing out the bloom)
+            const ambientLight = new THREE.AmbientLight(0x005577, 0.8);
             scene.add(ambientLight);
 
-            const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
             sunLight.position.set(5, 20, 10);
             sunLight.castShadow = true;
             scene.add(sunLight);
@@ -203,11 +215,14 @@
 
             createEnvironment();
 
-            // Initial population
-            for (let i = 0; i < 10; i++) addFish();
+            // Initial population (Increased for Flocking effect)
+            for (let i = 0; i < 25; i++) addFish();
             for (let i = 0; i < 4; i++) addCrab();
             for (let i = 0; i < 3; i++) addJellyfish();
             for (let i = 0; i < 30; i++) createBubble(true);
+
+            // Post-Processing Pipeline setup
+            setupPostProcessing();
 
             // Input Events
             window.addEventListener('resize', onWindowResize);
@@ -221,6 +236,30 @@
             document.addEventListener('wheel', (e) => {
                 camera.position.z = Math.max(5, Math.min(35, camera.position.z + e.deltaY * 0.01));
             });
+        }
+
+        function setupPostProcessing() {
+            const renderScene = new THREE.RenderPass(scene, camera);
+
+            // Bloom for glowing colors - Fixed settings for realism
+            const bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+            bloomPass.threshold = 0.95; // Increased so only the absolute brightest highlights glow
+            bloomPass.strength = 0.25;  // Reduced intensity for a subtle, natural look
+            bloomPass.radius = 0.1;
+
+            // Bokeh (Depth of Field) to blur background
+            bokehPass = new THREE.BokehPass(scene, camera, {
+                focus: 15.0, // Will be dynamically updated based on camera distance
+                aperture: 0.0005, // Drastically reduced for a much wider depth of field (more in focus)
+                maxblur: 0.004,   // Lowered maximum blur so things don't get completely washed out
+                width: window.innerWidth,
+                height: window.innerHeight
+            });
+
+            composer = new THREE.EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+            composer.addPass(bokehPass);
         }
 
         function createEnvironment() {
@@ -340,16 +379,18 @@
             group.scale.set(sizeMultiplier, sizeMultiplier, sizeMultiplier);
             group.position.set((Math.random()-0.5)*25, (Math.random()-0.5)*10, (Math.random()-0.5)*25);
             
-            const baseSpeed = 0.05 + (1.5 - sizeMultiplier) * 0.03;
+            const baseSpeed = 0.04 + (1.5 - sizeMultiplier) * 0.02;
 
+            // Updated UserData for Boids Flocking Logic
             group.userData = {
                 phase: Math.random() * Math.PI * 2,
-                speed: baseSpeed + (Math.random() * 0.02),
+                maxSpeed: baseSpeed + (Math.random() * 0.02),
+                maxForce: 0.002 + (Math.random() * 0.001), // Determines how fast they can turn
+                velocity: new THREE.Vector3((Math.random()-0.5), (Math.random()-0.5), (Math.random()-0.5)).normalize().multiplyScalar(baseSpeed),
                 bodyGroup: bodyGroup,
                 tailPivot: tailPivot,
                 pecR: pecR,
-                pecL: pecL,
-                targetFood: null
+                pecL: pecL
             };
 
             fishes.push(group);
@@ -358,23 +399,20 @@
 
         function addCrab() {
             const crabGroup = new THREE.Group();
-            // A realistic deep orange/red crustacean color
             const crabMat = new THREE.MeshStandardMaterial({ color: 0xcc4422, roughness: 0.8 });
             
-            // Body (Carapace) - wider side-to-side (Z axis) than front-to-back (X axis)
             const bodyGeo = new THREE.SphereGeometry(0.5, 16, 12);
             bodyGeo.scale(0.8, 0.4, 1.4); 
             const body = new THREE.Mesh(bodyGeo, crabMat);
             body.position.y = 0.2;
             crabGroup.add(body);
 
-            // Eye stalks (Front is +X)
             const stalkGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.2);
             const eyeMat = new THREE.MeshBasicMaterial({color: 0x000000});
             const eyeGeo = new THREE.SphereGeometry(0.05, 8, 8);
 
             const stalkR = new THREE.Mesh(stalkGeo, crabMat);
-            stalkR.position.set(0.3, 0.4, 0.2); // front right
+            stalkR.position.set(0.3, 0.4, 0.2); 
             stalkR.rotation.z = -Math.PI / 6;
             const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
             eyeR.position.set(0, 0.1, 0);
@@ -382,14 +420,13 @@
             crabGroup.add(stalkR);
 
             const stalkL = new THREE.Mesh(stalkGeo, crabMat);
-            stalkL.position.set(0.3, 0.4, -0.2); // front left
+            stalkL.position.set(0.3, 0.4, -0.2); 
             stalkL.rotation.z = -Math.PI / 6;
             const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
             eyeL.position.set(0, 0.1, 0);
             stalkL.add(eyeL);
             crabGroup.add(stalkL);
 
-            // Claws (Chelipeds)
             const clawArmGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.3, 8);
             const clawPincerGeo = new THREE.ConeGeometry(0.1, 0.3, 8);
             
@@ -419,21 +456,17 @@
             clawL.add(pincerL);
             crabGroup.add(clawL);
 
-            // Walking Legs (4 pairs)
             const legsGroup = new THREE.Group();
             const legGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.4, 8);
             
             for(let i=0; i<4; i++) {
-                const xOffset = 0.2 - (i * 0.2); // distribute back along X
-                
-                // Right leg (+Z side)
+                const xOffset = 0.2 - (i * 0.2); 
                 const legR = new THREE.Mesh(legGeo, crabMat);
                 legR.position.set(xOffset, 0.15, 0.6);
                 legR.rotation.x = Math.PI / 3; 
-                legR.rotation.z = (Math.PI / 12) * (1.5 - i); // splay forward/backward slightly
+                legR.rotation.z = (Math.PI / 12) * (1.5 - i); 
                 legsGroup.add(legR);
 
-                // Left leg (-Z side)
                 const legL = new THREE.Mesh(legGeo, crabMat);
                 legL.position.set(xOffset, 0.15, -0.6);
                 legL.rotation.x = -Math.PI / 3;
@@ -442,7 +475,6 @@
             }
             crabGroup.add(legsGroup);
 
-            // Random position on floor
             crabGroup.position.set((Math.random()-0.5)*30, -7.9, (Math.random()-0.5)*30);
             const size = 0.5 + Math.random() * 0.3;
             crabGroup.scale.set(size, size, size);
@@ -453,7 +485,7 @@
                 legsGroup: legsGroup,
                 targetRotation: Math.random() * Math.PI * 2,
                 stateTime: 0,
-                moveDirToggle: Math.random() > 0.5 ? 1 : -1 // 1 for walking left, -1 for walking right
+                moveDirToggle: Math.random() > 0.5 ? 1 : -1 
             };
 
             crabs.push(crabGroup);
@@ -463,12 +495,10 @@
         function addJellyfish() {
             const jellyGroup = new THREE.Group();
             
-            // Translucent dome
             const domeGeo = new THREE.SphereGeometry(0.6, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2);
             const jellyColors = [0x00ffff, 0xff88ff, 0xaaffff];
             const jColor = jellyColors[Math.floor(Math.random() * jellyColors.length)];
             
-            // MeshPhysicalMaterial gives a beautiful glass/gelatinous look
             const jellyMat = new THREE.MeshPhysicalMaterial({ 
                 color: jColor,
                 transparent: true,
@@ -481,11 +511,10 @@
             const dome = new THREE.Mesh(domeGeo, jellyMat);
             jellyGroup.add(dome);
 
-            // Tentacles
             const tentacleGroup = new THREE.Group();
             const tentacleMat = new THREE.MeshBasicMaterial({ color: jColor, transparent: true, opacity: 0.5 });
             const tentacleGeo = new THREE.CylinderGeometry(0.01, 0.005, 1.5, 4);
-            tentacleGeo.translate(0, -0.75, 0); // Origin at top
+            tentacleGeo.translate(0, -0.75, 0); 
 
             for(let i=0; i<6; i++) {
                 const tentacle = new THREE.Mesh(tentacleGeo, tentacleMat);
@@ -568,6 +597,7 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            if(composer) composer.setSize(window.innerWidth, window.innerHeight);
         }
 
         function animate() {
@@ -582,6 +612,11 @@
             camera.position.y = dist * Math.sin(curRotationX);
             camera.position.z = dist * Math.cos(curRotationY) * Math.cos(curRotationX);
             camera.lookAt(0, 0, 0);
+
+            // Dynamically update the focal depth of the lens to keep the center of the tank sharp
+            if(bokehPass) {
+                bokehPass.uniforms['focus'].value = camera.position.length();
+            }
 
             // Update Bubbles
             for(let i = bubbles.length - 1; i >= 0; i--) {
@@ -605,11 +640,13 @@
                 }
             }
 
-            // Update Fish
+            // Update Fish (With Flocking / Boids AI)
             fishes.forEach(fish => {
                 const data = fish.userData;
-                const timeFactor = time * (data.speed * 200) + data.phase;
+                const speed = data.velocity.length();
+                const timeFactor = time * (speed * 200) + data.phase;
                 
+                // Wagging animation based on real speed
                 data.bodyGroup.rotation.y = Math.sin(timeFactor) * 0.12;
                 data.tailPivot.rotation.y = Math.sin(timeFactor - 1.2) * 0.35;
                 data.pecR.rotation.y =  Math.PI/8 + Math.sin(timeFactor) * 0.15;
@@ -632,24 +669,61 @@
                     }
                 }
 
-                if(moveTarget) {
-                    const toFood = new THREE.Vector3().subVectors(moveTarget, fish.position).normalize();
-                    const targetQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1,0,0), toFood);
-                    fish.quaternion.slerp(targetQuat, 0.05);
-                    fish.position.addScaledVector(toFood, data.speed * 1.5);
-                } else {
-                    const direction = new THREE.Vector3(1, 0, 0).applyQuaternion(fish.quaternion);
-                    fish.position.addScaledVector(direction, data.speed);
+                let acceleration = new THREE.Vector3();
 
+                if(moveTarget) {
+                    // Feeding overrides flocking
+                    let desired = new THREE.Vector3().subVectors(moveTarget, fish.position).normalize().multiplyScalar(data.maxSpeed * 1.5);
+                    let steer = new THREE.Vector3().subVectors(desired, data.velocity);
+                    steer.clampLength(0, data.maxForce * 4); // Quick turns for food
+                    acceleration.add(steer);
+                } else {
+                    // Flocking Logic (Separation, Alignment, Cohesion)
+                    let separation = new THREE.Vector3();
+                    let alignment = new THREE.Vector3();
+                    let cohesion = new THREE.Vector3();
+                    let flockCount = 0;
+
+                    fishes.forEach(other => {
+                        if (other !== fish) {
+                            let d = fish.position.distanceTo(other.position);
+                            if (d > 0 && d < 5.0) { // Perception radius
+                                let diff = new THREE.Vector3().subVectors(fish.position, other.position).normalize().divideScalar(d);
+                                separation.add(diff);
+                                alignment.add(other.userData.velocity);
+                                cohesion.add(other.position);
+                                flockCount++;
+                            }
+                        }
+                    });
+
+                    if (flockCount > 0) {
+                        separation.divideScalar(flockCount).normalize().multiplyScalar(data.maxSpeed).sub(data.velocity).clampLength(0, data.maxForce * 1.5);
+                        alignment.divideScalar(flockCount).normalize().multiplyScalar(data.maxSpeed).sub(data.velocity).clampLength(0, data.maxForce);
+                        cohesion.divideScalar(flockCount).sub(fish.position).normalize().multiplyScalar(data.maxSpeed).sub(data.velocity).clampLength(0, data.maxForce);
+
+                        acceleration.add(separation.multiplyScalar(2.0)); // Highly value personal space
+                        acceleration.add(alignment.multiplyScalar(1.0));
+                        acceleration.add(cohesion.multiplyScalar(0.8));
+                    }
+
+                    // Soft Tank Boundaries
                     const bounds = 18;
                     if (Math.abs(fish.position.x) > bounds || Math.abs(fish.position.y) > 8 || Math.abs(fish.position.z) > bounds) {
-                        const toCenter = new THREE.Vector3(0,0,0).sub(fish.position).normalize();
-                        const turnQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1,0,0), toCenter);
-                        fish.quaternion.slerp(turnQuat, 0.03);
-                    } else if (Math.random() > 0.99) {
-                        data.wanderQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, fish.rotation.y + (Math.random()-0.5)*2, 0));
+                        let steerToCenter = new THREE.Vector3(0,0,0).sub(fish.position).normalize().multiplyScalar(data.maxSpeed).sub(data.velocity).clampLength(0, data.maxForce * 2.5);
+                        acceleration.add(steerToCenter);
                     }
-                    if(data.wanderQuat) fish.quaternion.slerp(data.wanderQuat, 0.01);
+                }
+
+                // Apply Physics
+                data.velocity.add(acceleration);
+                data.velocity.clampLength(0, data.maxSpeed * (moveTarget ? 1.5 : 1.0));
+                fish.position.add(data.velocity);
+
+                // Smoothly orient fish to face velocity direction
+                if (data.velocity.lengthSq() > 0.00001) {
+                    const targetQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1,0,0), data.velocity.clone().normalize());
+                    fish.quaternion.slerp(targetQuat, 0.08);
                 }
             });
 
@@ -658,45 +732,36 @@
                 const data = crab.userData;
                 data.stateTime++;
 
-                // Scuttling animation (rapidly tapping legs)
                 data.legsGroup.children.forEach((leg, i) => {
                     const isRight = i % 2 === 0;
                     const legIndex = Math.floor(i / 2);
-                    
                     const baseRotX = isRight ? Math.PI / 3 : -Math.PI / 3;
                     const baseRotZ = (Math.PI / 12) * (1.5 - legIndex);
-                    // Alternate phase so not all legs lift at once
                     const phaseOffset = (legIndex % 2 === 0) ? 0 : Math.PI;
-                    
-                    // Legs lift and tap rapidly
                     leg.rotation.z = baseRotZ + Math.sin(time * 25 + phaseOffset) * 0.15;
                     leg.rotation.x = baseRotX + Math.cos(time * 25 + phaseOffset) * 0.1 * (isRight ? -1 : 1);
                 });
 
-                // Periodic behavior changes
                 if(data.stateTime > 200 && Math.random() > 0.95) {
                     if (Math.random() > 0.4) {
-                        data.moveDirToggle *= -1; // Change scuttle direction (left vs right)
+                        data.moveDirToggle *= -1; 
                     } else {
-                        data.targetRotation = Math.random() * Math.PI * 2; // Turn to face a new way entirely
+                        data.targetRotation = Math.random() * Math.PI * 2; 
                     }
                     data.stateTime = 0;
                 }
 
-                // Smoothly rotate the crab body towards its target facing direction
                 crab.rotation.y += (data.targetRotation - crab.rotation.y) * 0.05;
 
-                // Move SIDEWAYS (Crabs walk perpendicular to where they face)
                 const sidewaysAngle = crab.rotation.y + (Math.PI / 2);
                 const direction = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0,1,0), sidewaysAngle);
                 
                 crab.position.addScaledVector(direction, data.speed * data.moveDirToggle);
 
-                // Crab boundaries
                 const bound = 25;
                 if (Math.abs(crab.position.x) > bound || Math.abs(crab.position.z) > bound) {
-                    data.moveDirToggle *= -1; // Reverse sideways movement immediately
-                    data.targetRotation += Math.PI / 2; // Turn a little bit away from the wall
+                    data.moveDirToggle *= -1; 
+                    data.targetRotation += Math.PI / 2; 
                     crab.position.x = Math.max(-bound, Math.min(bound, crab.position.x));
                     crab.position.z = Math.max(-bound, Math.min(bound, crab.position.z));
                 }
@@ -707,23 +772,18 @@
                 const data = jelly.userData;
                 const timeFactor = time * 2 + data.phase;
 
-                // Pulsing dome
                 const pulse = 1 + Math.sin(timeFactor) * 0.1;
                 data.dome.scale.set(pulse, pulse, pulse);
 
-                // Vertical drift
                 jelly.position.y = data.baseY + Math.sin(timeFactor * 0.5) * 2;
-                // Slight horizontal drift
                 jelly.position.x += Math.sin(timeFactor * 0.3) * data.speed;
                 jelly.position.z += Math.cos(timeFactor * 0.4) * data.speed;
 
-                // Swaying tentacles
                 data.tentacleGroup.children.forEach(tentacle => {
                     tentacle.rotation.x = Math.sin(timeFactor + tentacle.userData.offset) * 0.2;
                     tentacle.rotation.z = Math.cos(timeFactor + tentacle.userData.offset) * 0.2;
                 });
 
-                // Jellyfish boundaries
                 const bound = 20;
                 if(Math.abs(jelly.position.x) > bound) jelly.position.x = Math.sign(jelly.position.x) * bound;
                 if(Math.abs(jelly.position.z) > bound) jelly.position.z = Math.sign(jelly.position.z) * bound;
@@ -738,7 +798,12 @@
                 }
             });
 
-            renderer.render(scene, camera);
+            // Use Post-Processing Composer instead of standard renderer
+            if (composer) {
+                composer.render();
+            } else {
+                renderer.render(scene, camera);
+            }
         }
     </script>
 </body>
