@@ -43,7 +43,9 @@
             left: 50%;
             transform: translateX(-50%);
             display: flex;
-            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
             background: rgba(0, 20, 40, 0.6);
             backdrop-filter: blur(15px);
             padding: 12px 25px;
@@ -51,18 +53,21 @@
             color: white;
             border: 1px solid rgba(255,255,255,0.1);
             z-index: 100;
+            width: max-content;
+            max-width: 90vw;
         }
 
         button {
             background: rgba(0, 188, 212, 0.3);
             border: 1px solid rgba(0, 188, 212, 0.5);
-            padding: 8px 20px;
+            padding: 8px 16px;
             border-radius: 20px;
             color: #e0f7fa;
             cursor: pointer;
             font-weight: 600;
             transition: all 0.2s;
             outline: none;
+            font-size: 13px;
         }
 
         button:hover {
@@ -75,17 +80,26 @@
             transform: translateY(0);
         }
 
+        #feed-btn {
+            background: rgba(255, 152, 0, 0.3);
+            border-color: rgba(255, 152, 0, 0.5);
+        }
+        #feed-btn:hover {
+            background: rgba(255, 152, 0, 0.6);
+        }
+
         #feed-msg {
             position: fixed;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            color: rgba(255,255,255,0.5);
+            color: rgba(255,255,255,0.7);
             pointer-events: none;
-            font-size: 1.2rem;
+            font-size: 1.5rem;
             text-transform: uppercase;
-            letter-spacing: 2px;
+            letter-spacing: 3px;
             display: none;
+            text-shadow: 0 2px 10px rgba(0,0,0,1);
         }
     </style>
 </head>
@@ -99,13 +113,17 @@
     <div id="feed-msg">Click anywhere to drop food</div>
 
     <div id="interaction-overlay">
-        <button onclick="addFish()">Add Random Fish</button>
-        <button onclick="toggleFeedingMode()" id="feed-btn">Feed Fish</button>
+        <button onclick="addFish()">+ Fish</button>
+        <button onclick="addCrab()">+ Crab</button>
+        <button onclick="addJellyfish()">+ Jellyfish</button>
+        <button onclick="toggleFeedingMode()" id="feed-btn">Feed Tank</button>
     </div>
 
     <script>
         let scene, camera, renderer, clock;
         let fishes = [];
+        let crabs = [];
+        let jellyfishes = [];
         let bubbles = [];
         let foodParticles = [];
         let feedingMode = false;
@@ -125,25 +143,19 @@
 
         function init() {
             scene = new THREE.Scene();
-            // Use a brighter fallback color for the reef
             scene.background = new THREE.Color(0x004477); 
-            // Reduced fog density so the photographic background remains visible
             scene.fog = new THREE.FogExp2(0x004477, 0.012);
 
-            // Load Photographic Background (Mapped to a Cylinder for seamless panorama)
+            // Load Photographic Background
             const textureLoader = new THREE.TextureLoader();
-            // Using a consistent, single underwater scene with sunbeams
             textureLoader.load('https://images.unsplash.com/photo-1582967788606-a171c1080cb0?auto=format&fit=crop&w=2000&q=80', function(texture) {
-                // Mirror the texture horizontally so there are absolutely no visible seams
                 texture.wrapS = THREE.MirroredRepeatWrapping;
                 texture.repeat.set(2, 1);
-                
-                // Use a cylinder instead of a sphere to prevent pinching at the top/bottom
                 const bgGeometry = new THREE.CylinderGeometry(150, 150, 150, 64, 1, true);
                 const bgMaterial = new THREE.MeshBasicMaterial({
                     map: texture,
                     side: THREE.BackSide,
-                    fog: false // Ensure the background image isn't washed out by fog
+                    fog: false
                 });
                 const backgroundCylinder = new THREE.Mesh(bgGeometry, bgMaterial);
                 backgroundCylinder.position.y = 10;
@@ -162,7 +174,7 @@
             clock = new THREE.Clock();
 
             // Lighting
-            const ambientLight = new THREE.AmbientLight(0x005577, 1.5);
+            const ambientLight = new THREE.AmbientLight(0x005577, 1.8);
             scene.add(ambientLight);
 
             const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -170,13 +182,18 @@
             sunLight.castShadow = true;
             scene.add(sunLight);
 
-            // Caustics Simulation on floor (Changed to Circle to fit the cylinder perfectly)
+            // Subtle bottom light for jellyfish translucency
+            const bottomLight = new THREE.PointLight(0x00aaff, 0.8, 50);
+            bottomLight.position.set(0, -5, 0);
+            scene.add(bottomLight);
+
+            // Caustics Simulation on floor
             const floorGeo = new THREE.CircleGeometry(150, 64);
             const floorMat = new THREE.MeshPhongMaterial({ 
                 color: 0xc2b280,
                 shininess: 0,
                 transparent: true,
-                opacity: 0.8 // Blend slightly into the background image
+                opacity: 0.8 
             });
             const floor = new THREE.Mesh(floorGeo, floorMat);
             floor.rotation.x = -Math.PI / 2;
@@ -187,7 +204,9 @@
             createEnvironment();
 
             // Initial population
-            for (let i = 0; i < 12; i++) addFish();
+            for (let i = 0; i < 10; i++) addFish();
+            for (let i = 0; i < 4; i++) addCrab();
+            for (let i = 0; i < 3; i++) addJellyfish();
             for (let i = 0; i < 30; i++) createBubble(true);
 
             // Input Events
@@ -205,37 +224,24 @@
         }
 
         function createEnvironment() {
-            // Rocks with varied shapes
             for(let i=0; i<12; i++) {
                 const geo = new THREE.DodecahedronGeometry(Math.random() * 3 + 1, 0);
-                const mat = new THREE.MeshStandardMaterial({ 
-                    color: 0x334455, 
-                    roughness: 0.8,
-                    flatShading: true
-                });
+                const mat = new THREE.MeshStandardMaterial({ color: 0x334455, roughness: 0.8, flatShading: true });
                 const rock = new THREE.Mesh(geo, mat);
                 rock.position.set((Math.random()-0.5)*40, -8, (Math.random()-0.5)*40);
                 rock.rotation.set(Math.random(), Math.random(), Math.random());
                 rock.receiveShadow = true;
                 scene.add(rock);
-
-                // Add bubbles above some rocks
-                if(Math.random() > 0.6) {
-                    rock.userData.isBubbleSource = true;
-                }
+                if(Math.random() > 0.6) rock.userData.isBubbleSource = true;
             }
 
-            // Enhanced Seaweed
             for(let i=0; i<60; i++) {
                 const height = 2 + Math.random() * 5;
                 const geo = new THREE.CylinderGeometry(0.02, 0.1, height, 6);
                 const mat = new THREE.MeshPhongMaterial({ color: 0x1b5e20 });
                 const weed = new THREE.Mesh(geo, mat);
                 weed.position.set((Math.random()-0.5)*50, -8 + height/2, (Math.random()-0.5)*50);
-                weed.userData = { 
-                    offset: Math.random() * Math.PI,
-                    speed: 0.5 + Math.random() 
-                };
+                weed.userData = { offset: Math.random() * Math.PI, speed: 0.5 + Math.random() };
                 scene.add(weed);
             }
         }
@@ -245,17 +251,11 @@
             canvas.width = 256;
             canvas.height = 128;
             const ctx = canvas.getContext('2d');
-
-            // Base color
             ctx.fillStyle = color1;
             ctx.fillRect(0, 0, 256, 128);
-
-            // Pattern color
             ctx.fillStyle = color2;
             if (patternType === 'stripes') {
-                for (let i = 20; i < 256; i += 40) {
-                    ctx.fillRect(i, 0, 20, 128);
-                }
+                for (let i = 20; i < 256; i += 40) ctx.fillRect(i, 0, 20, 128);
             } else if (patternType === 'spots') {
                 for (let i = 0; i < 15; i++) {
                     ctx.beginPath();
@@ -265,7 +265,6 @@
             } else if (patternType === 'half') {
                 ctx.fillRect(128, 0, 128, 128);
             }
-
             const texture = new THREE.CanvasTexture(canvas);
             texture.wrapS = THREE.RepeatWrapping;
             texture.wrapT = THREE.RepeatWrapping;
@@ -277,10 +276,7 @@
             const bodyGroup = new THREE.Group();
             group.add(bodyGroup);
             
-            // Randomize overall size (0.5x to 1.5x)
             const sizeMultiplier = 0.5 + Math.random();
-
-            // Generate Pattern and Colors
             const patterns = ['solid', 'stripes', 'spots', 'half'];
             const pType = patterns[Math.floor(Math.random() * patterns.length)];
             const c1 = baseColors[Math.floor(Math.random() * baseColors.length)];
@@ -289,41 +285,32 @@
             
             const fishTexture = createFishPattern(pType, c1, c2);
 
-            // 1. Refined Body Shape (Flatter, more natural)
             const bodyGeo = new THREE.SphereGeometry(0.4, 16, 12);
             bodyGeo.scale(1.5, 1, 0.3);
-            const bodyMat = new THREE.MeshStandardMaterial({ 
-                map: fishTexture,
-                roughness: 0.3,
-                metalness: 0.2
-            });
+            const bodyMat = new THREE.MeshStandardMaterial({ map: fishTexture, roughness: 0.3, metalness: 0.2 });
             const body = new THREE.Mesh(bodyGeo, bodyMat);
             bodyGroup.add(body);
 
-            // 2. Tail Pivot (Inset slightly into the body for a seamless joint)
             const tailPivot = new THREE.Group();
             tailPivot.position.x = -0.45;
             bodyGroup.add(tailPivot);
 
-            // 3. Tail Fin (Diamond shape, narrow at body and wide at back)
             const tailGeo = new THREE.ConeGeometry(0.3, 0.8, 4);
-            tailGeo.rotateY(Math.PI/4); // Align to make a diamond
-            tailGeo.rotateZ(-Math.PI/2); // Point into the body
-            tailGeo.scale(1, 1, 0.1); // Flatten it
+            tailGeo.rotateY(Math.PI/4); 
+            tailGeo.rotateZ(-Math.PI/2); 
+            tailGeo.scale(1, 1, 0.1); 
             const tail = new THREE.Mesh(tailGeo, bodyMat);
-            tail.position.x = -0.4; // Position tip exactly at the pivot
+            tail.position.x = -0.4; 
             tailPivot.add(tail);
 
-            // 4. Dorsal Fin (Top)
             const dorsalGeo = new THREE.ConeGeometry(0.2, 0.6, 4);
             dorsalGeo.rotateY(Math.PI/4);
             dorsalGeo.scale(1, 1, 0.1);
             const dorsal = new THREE.Mesh(dorsalGeo, bodyMat);
             dorsal.position.set(-0.1, 0.3, 0);
-            dorsal.rotation.z = -Math.PI/6; // Lean back slightly
+            dorsal.rotation.z = -Math.PI/6; 
             bodyGroup.add(dorsal);
 
-            // 5. Pectoral Fins (Sides)
             const pecGeo = new THREE.ConeGeometry(0.15, 0.4, 4);
             pecGeo.rotateY(Math.PI/4);
             pecGeo.rotateZ(-Math.PI/2);
@@ -341,7 +328,6 @@
             pecL.rotation.x = Math.PI / 8;
             bodyGroup.add(pecL);
 
-            // Eyes
             const eyeGeo = new THREE.SphereGeometry(0.04, 8, 8);
             const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
             const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
@@ -351,12 +337,9 @@
             eyeL.position.set(0.35, 0.05, -0.12);
             bodyGroup.add(eyeL);
 
-            // Scale entire fish proportionally
             group.scale.set(sizeMultiplier, sizeMultiplier, sizeMultiplier);
-
             group.position.set((Math.random()-0.5)*25, (Math.random()-0.5)*10, (Math.random()-0.5)*25);
             
-            // Speed inversely proportional to size (smaller fish are faster)
             const baseSpeed = 0.05 + (1.5 - sizeMultiplier) * 0.03;
 
             group.userData = {
@@ -373,13 +356,165 @@
             scene.add(group);
         }
 
+        function addCrab() {
+            const crabGroup = new THREE.Group();
+            // A realistic deep orange/red crustacean color
+            const crabMat = new THREE.MeshStandardMaterial({ color: 0xcc4422, roughness: 0.8 });
+            
+            // Body (Carapace) - wider side-to-side (Z axis) than front-to-back (X axis)
+            const bodyGeo = new THREE.SphereGeometry(0.5, 16, 12);
+            bodyGeo.scale(0.8, 0.4, 1.4); 
+            const body = new THREE.Mesh(bodyGeo, crabMat);
+            body.position.y = 0.2;
+            crabGroup.add(body);
+
+            // Eye stalks (Front is +X)
+            const stalkGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.2);
+            const eyeMat = new THREE.MeshBasicMaterial({color: 0x000000});
+            const eyeGeo = new THREE.SphereGeometry(0.05, 8, 8);
+
+            const stalkR = new THREE.Mesh(stalkGeo, crabMat);
+            stalkR.position.set(0.3, 0.4, 0.2); // front right
+            stalkR.rotation.z = -Math.PI / 6;
+            const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
+            eyeR.position.set(0, 0.1, 0);
+            stalkR.add(eyeR);
+            crabGroup.add(stalkR);
+
+            const stalkL = new THREE.Mesh(stalkGeo, crabMat);
+            stalkL.position.set(0.3, 0.4, -0.2); // front left
+            stalkL.rotation.z = -Math.PI / 6;
+            const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+            eyeL.position.set(0, 0.1, 0);
+            stalkL.add(eyeL);
+            crabGroup.add(stalkL);
+
+            // Claws (Chelipeds)
+            const clawArmGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.3, 8);
+            const clawPincerGeo = new THREE.ConeGeometry(0.1, 0.3, 8);
+            
+            const clawR = new THREE.Group();
+            clawR.position.set(0.4, 0.2, 0.6);
+            const armR = new THREE.Mesh(clawArmGeo, crabMat);
+            armR.rotation.x = Math.PI / 2;
+            armR.rotation.y = Math.PI / 4;
+            const pincerR = new THREE.Mesh(clawPincerGeo, crabMat);
+            pincerR.position.set(0.15, 0, 0.15);
+            pincerR.rotation.x = Math.PI / 2;
+            pincerR.rotation.z = -Math.PI / 4;
+            clawR.add(armR);
+            clawR.add(pincerR);
+            crabGroup.add(clawR);
+
+            const clawL = new THREE.Group();
+            clawL.position.set(0.4, 0.2, -0.6);
+            const armL = new THREE.Mesh(clawArmGeo, crabMat);
+            armL.rotation.x = Math.PI / 2;
+            armL.rotation.y = -Math.PI / 4;
+            const pincerL = new THREE.Mesh(clawPincerGeo, crabMat);
+            pincerL.position.set(0.15, 0, -0.15);
+            pincerL.rotation.x = -Math.PI / 2;
+            pincerL.rotation.z = -Math.PI / 4;
+            clawL.add(armL);
+            clawL.add(pincerL);
+            crabGroup.add(clawL);
+
+            // Walking Legs (4 pairs)
+            const legsGroup = new THREE.Group();
+            const legGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.4, 8);
+            
+            for(let i=0; i<4; i++) {
+                const xOffset = 0.2 - (i * 0.2); // distribute back along X
+                
+                // Right leg (+Z side)
+                const legR = new THREE.Mesh(legGeo, crabMat);
+                legR.position.set(xOffset, 0.15, 0.6);
+                legR.rotation.x = Math.PI / 3; 
+                legR.rotation.z = (Math.PI / 12) * (1.5 - i); // splay forward/backward slightly
+                legsGroup.add(legR);
+
+                // Left leg (-Z side)
+                const legL = new THREE.Mesh(legGeo, crabMat);
+                legL.position.set(xOffset, 0.15, -0.6);
+                legL.rotation.x = -Math.PI / 3;
+                legL.rotation.z = (Math.PI / 12) * (1.5 - i);
+                legsGroup.add(legL);
+            }
+            crabGroup.add(legsGroup);
+
+            // Random position on floor
+            crabGroup.position.set((Math.random()-0.5)*30, -7.9, (Math.random()-0.5)*30);
+            const size = 0.5 + Math.random() * 0.3;
+            crabGroup.scale.set(size, size, size);
+
+            crabGroup.userData = {
+                phase: Math.random() * Math.PI * 2,
+                speed: 0.015 + Math.random() * 0.015,
+                legsGroup: legsGroup,
+                targetRotation: Math.random() * Math.PI * 2,
+                stateTime: 0,
+                moveDirToggle: Math.random() > 0.5 ? 1 : -1 // 1 for walking left, -1 for walking right
+            };
+
+            crabs.push(crabGroup);
+            scene.add(crabGroup);
+        }
+
+        function addJellyfish() {
+            const jellyGroup = new THREE.Group();
+            
+            // Translucent dome
+            const domeGeo = new THREE.SphereGeometry(0.6, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+            const jellyColors = [0x00ffff, 0xff88ff, 0xaaffff];
+            const jColor = jellyColors[Math.floor(Math.random() * jellyColors.length)];
+            
+            // MeshPhysicalMaterial gives a beautiful glass/gelatinous look
+            const jellyMat = new THREE.MeshPhysicalMaterial({ 
+                color: jColor,
+                transparent: true,
+                opacity: 0.6,
+                roughness: 0.1,
+                transmission: 0.9,
+                thickness: 0.5,
+                side: THREE.DoubleSide
+            });
+            const dome = new THREE.Mesh(domeGeo, jellyMat);
+            jellyGroup.add(dome);
+
+            // Tentacles
+            const tentacleGroup = new THREE.Group();
+            const tentacleMat = new THREE.MeshBasicMaterial({ color: jColor, transparent: true, opacity: 0.5 });
+            const tentacleGeo = new THREE.CylinderGeometry(0.01, 0.005, 1.5, 4);
+            tentacleGeo.translate(0, -0.75, 0); // Origin at top
+
+            for(let i=0; i<6; i++) {
+                const tentacle = new THREE.Mesh(tentacleGeo, tentacleMat);
+                const angle = (i / 6) * Math.PI * 2;
+                tentacle.position.set(Math.cos(angle)*0.3, 0, Math.sin(angle)*0.3);
+                tentacle.userData = { offset: i * 0.5 };
+                tentacleGroup.add(tentacle);
+            }
+            jellyGroup.add(tentacleGroup);
+
+            const size = 0.8 + Math.random() * 0.7;
+            jellyGroup.scale.set(size, size, size);
+            jellyGroup.position.set((Math.random()-0.5)*25, (Math.random()-0.5)*10, (Math.random()-0.5)*25);
+
+            jellyGroup.userData = {
+                phase: Math.random() * Math.PI * 2,
+                speed: 0.005 + Math.random() * 0.005,
+                dome: dome,
+                tentacleGroup: tentacleGroup,
+                baseY: jellyGroup.position.y
+            };
+
+            jellyfishes.push(jellyGroup);
+            scene.add(jellyGroup);
+        }
+
         function createBubble(randomHeight = false) {
             const geo = new THREE.SphereGeometry(0.05 + Math.random() * 0.1, 8, 8);
-            const mat = new THREE.MeshPhongMaterial({ 
-                color: 0xffffff, 
-                transparent: true, 
-                opacity: 0.4 
-            });
+            const mat = new THREE.MeshPhongMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 });
             const bubble = new THREE.Mesh(geo, mat);
             bubble.position.set(
                 (Math.random()-0.5)*30,
@@ -396,12 +531,11 @@
             const btn = document.getElementById('feed-btn');
             const msg = document.getElementById('feed-msg');
             btn.style.background = feedingMode ? "rgba(255, 152, 0, 0.6)" : "";
-            btn.innerText = feedingMode ? "Cancel Feeding" : "Feed Fish";
+            btn.innerText = feedingMode ? "Cancel Feeding" : "Feed Tank";
             msg.style.display = feedingMode ? "block" : "none";
         }
 
         function dropFood(event) {
-            // Get 3D coords from screen click
             const vector = new THREE.Vector3(
                 (event.clientX / window.innerWidth) * 2 - 1,
                 -(event.clientY / window.innerHeight) * 2 + 1,
@@ -439,7 +573,6 @@
         function animate() {
             requestAnimationFrame(animate);
             const time = clock.getElapsedTime();
-            const delta = clock.getDelta();
 
             // Camera movement
             curRotationX += (targetRotationX - curRotationX) * 0.1;
@@ -475,21 +608,13 @@
             // Update Fish
             fishes.forEach(fish => {
                 const data = fish.userData;
-                
-                // Spine wave motion (Biomechanical swimming)
-                // Speed influences the wagging frequency
                 const timeFactor = time * (data.speed * 200) + data.phase;
                 
-                // Body yaws slightly
                 data.bodyGroup.rotation.y = Math.sin(timeFactor) * 0.12;
-                // Tail pivots heavily with a phase delay (creates a traveling S-curve)
                 data.tailPivot.rotation.y = Math.sin(timeFactor - 1.2) * 0.35;
-                
-                // Pectoral fins paddle
                 data.pecR.rotation.y =  Math.PI/8 + Math.sin(timeFactor) * 0.15;
                 data.pecL.rotation.y = -Math.PI/8 - Math.sin(timeFactor) * 0.15;
 
-                // Simple AI: Seek food or wander
                 let moveTarget = null;
                 if(foodParticles.length > 0) {
                     let closest = null;
@@ -500,7 +625,6 @@
                     });
                     if(closest) {
                         moveTarget = closest.position;
-                        // "Eat" food
                         if(minDist < 0.5) {
                             scene.remove(closest);
                             foodParticles.splice(foodParticles.indexOf(closest), 1);
@@ -514,7 +638,6 @@
                     fish.quaternion.slerp(targetQuat, 0.05);
                     fish.position.addScaledVector(toFood, data.speed * 1.5);
                 } else {
-                    // Wandering logic
                     const direction = new THREE.Vector3(1, 0, 0).applyQuaternion(fish.quaternion);
                     fish.position.addScaledVector(direction, data.speed);
 
@@ -526,9 +649,86 @@
                     } else if (Math.random() > 0.99) {
                         data.wanderQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, fish.rotation.y + (Math.random()-0.5)*2, 0));
                     }
-                    
                     if(data.wanderQuat) fish.quaternion.slerp(data.wanderQuat, 0.01);
                 }
+            });
+
+            // Update Crabs
+            crabs.forEach(crab => {
+                const data = crab.userData;
+                data.stateTime++;
+
+                // Scuttling animation (rapidly tapping legs)
+                data.legsGroup.children.forEach((leg, i) => {
+                    const isRight = i % 2 === 0;
+                    const legIndex = Math.floor(i / 2);
+                    
+                    const baseRotX = isRight ? Math.PI / 3 : -Math.PI / 3;
+                    const baseRotZ = (Math.PI / 12) * (1.5 - legIndex);
+                    // Alternate phase so not all legs lift at once
+                    const phaseOffset = (legIndex % 2 === 0) ? 0 : Math.PI;
+                    
+                    // Legs lift and tap rapidly
+                    leg.rotation.z = baseRotZ + Math.sin(time * 25 + phaseOffset) * 0.15;
+                    leg.rotation.x = baseRotX + Math.cos(time * 25 + phaseOffset) * 0.1 * (isRight ? -1 : 1);
+                });
+
+                // Periodic behavior changes
+                if(data.stateTime > 200 && Math.random() > 0.95) {
+                    if (Math.random() > 0.4) {
+                        data.moveDirToggle *= -1; // Change scuttle direction (left vs right)
+                    } else {
+                        data.targetRotation = Math.random() * Math.PI * 2; // Turn to face a new way entirely
+                    }
+                    data.stateTime = 0;
+                }
+
+                // Smoothly rotate the crab body towards its target facing direction
+                crab.rotation.y += (data.targetRotation - crab.rotation.y) * 0.05;
+
+                // Move SIDEWAYS (Crabs walk perpendicular to where they face)
+                const sidewaysAngle = crab.rotation.y + (Math.PI / 2);
+                const direction = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0,1,0), sidewaysAngle);
+                
+                crab.position.addScaledVector(direction, data.speed * data.moveDirToggle);
+
+                // Crab boundaries
+                const bound = 25;
+                if (Math.abs(crab.position.x) > bound || Math.abs(crab.position.z) > bound) {
+                    data.moveDirToggle *= -1; // Reverse sideways movement immediately
+                    data.targetRotation += Math.PI / 2; // Turn a little bit away from the wall
+                    crab.position.x = Math.max(-bound, Math.min(bound, crab.position.x));
+                    crab.position.z = Math.max(-bound, Math.min(bound, crab.position.z));
+                }
+            });
+
+            // Update Jellyfish
+            jellyfishes.forEach(jelly => {
+                const data = jelly.userData;
+                const timeFactor = time * 2 + data.phase;
+
+                // Pulsing dome
+                const pulse = 1 + Math.sin(timeFactor) * 0.1;
+                data.dome.scale.set(pulse, pulse, pulse);
+
+                // Vertical drift
+                jelly.position.y = data.baseY + Math.sin(timeFactor * 0.5) * 2;
+                // Slight horizontal drift
+                jelly.position.x += Math.sin(timeFactor * 0.3) * data.speed;
+                jelly.position.z += Math.cos(timeFactor * 0.4) * data.speed;
+
+                // Swaying tentacles
+                data.tentacleGroup.children.forEach(tentacle => {
+                    tentacle.rotation.x = Math.sin(timeFactor + tentacle.userData.offset) * 0.2;
+                    tentacle.rotation.z = Math.cos(timeFactor + tentacle.userData.offset) * 0.2;
+                });
+
+                // Jellyfish boundaries
+                const bound = 20;
+                if(Math.abs(jelly.position.x) > bound) jelly.position.x = Math.sign(jelly.position.x) * bound;
+                if(Math.abs(jelly.position.z) > bound) jelly.position.z = Math.sign(jelly.position.z) * bound;
+                if(data.baseY > 6) data.baseY = 6;
+                if(data.baseY < -4) data.baseY = -4;
             });
 
             // Animate seaweed
