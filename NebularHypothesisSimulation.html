@@ -317,8 +317,8 @@
             </div>
 
             <div>
-                <label class="slider" for="speedSlider"><span>Simulation Speed</span><span id="speedVal">1×</span></label>
-                <input type="range" id="speedSlider" min="0.25" max="4" step="0.25" value="1">
+                <label class="slider" for="speedSlider"><span>Simulation Speed</span><span id="speedVal">1.5×</span></label>
+                <input type="range" id="speedSlider" min="0.25" max="4" step="0.25" value="1.5">
             </div>
 
             <div>
@@ -370,7 +370,7 @@
             G: 0.8,
             SOFTENING: 15,           // Keeps close encounters from slingshotting bodies away
             DT: 0.1,                 // Fixed physics step; the speed slider changes steps per second
-            SPEED: 1,                // Multiplier on 60 steps per second
+            SPEED: 1.5,              // Multiplier on 60 steps per second
             DRAG: 1.0,               // Gas drag multiplier
             SPIN_MULTIPLIER: 1.0,    // How fast the cloud turns, relative to orbital speed at its edge
 
@@ -385,8 +385,10 @@
             ROT_PROFILE: 0.7,        // 1 = solid-body rotation, 0 = same fraction of orbital speed everywhere
             JITTER: 0.1,             // Random velocity as a fraction of the edge orbital speed
             CORE_CAPTURE: 4,
+            SOLID_HIT: 0.5,          // Contact distance multiplier between planets (and the star)
             GAS_STICK: 1.0,          // Contact distance multiplier when two gas particles meet
             HEADWIND: 0.1,
+            CIRCULARIZE: 0.004,      // How quickly the disk rounds off planets' orbits (per step)
             PLANET_DRAG: 0.5,        // Extra drag factor for planets (makes them migrate inwards)          // How much slower than orbital speed the gas moves         // The core sweeps up gas within this many of its radii
             DENSITY_POWER: 0.85,     // Higher = cloud more concentrated towards the middle
             STAR_FRACTION: 0.35,
@@ -666,6 +668,7 @@
             // and slowly bleeds away its orbital speed (so it spirals in). It never adds spin.
             // Heavier bodies feel much less of it.
             const drag = Config.DRAG * 0.01 * diskStrength() * (dt / 0.1);
+            const circularize = Math.min(1, Config.DRAG * Config.CIRCULARIZE * diskStrength() * (dt / 0.1));
             if (drag > 0) {
                 for (const b of bodies) {
                     if (b === heaviest && anchorOnCore) continue;
@@ -679,8 +682,17 @@
                     const vt = -rvx * uy + rvy * ux;
                     const ratio = Math.min(1, Config.BASE_MASS / b.mass);
                     const k = drag * (b.mass < Config.MASS_PLANET ? Math.pow(ratio, 0.6) : ratio * Config.PLANET_DRAG);
-                    const vr2 = vr * (1 - k);
-                    const vt2 = vt * (1 - k * Config.HEADWIND);
+                    let vr2 = vr * (1 - k);
+                    let vt2 = vt * (1 - k * Config.HEADWIND);
+
+                    // Planets embedded in the disk have their orbits rounded off by the gas,
+                    // so they don't plunge into the star on long, thin orbits
+                    if (b.mass >= Config.MASS_PLANET && anchorOnCore) {
+                        const kc = circularize;
+                        const vc = Math.sqrt((Config.G * anchor.mass) / r) * (vt >= 0 ? 1 : -1);
+                        vr2 = vr * (1 - kc);
+                        vt2 = vt + (vc - vt) * kc;
+                    }
                     b.vx = anchor.vx + ux * vr2 - uy * vt2;
                     b.vy = anchor.vy + uy * vr2 + ux * vt2;
                 }
@@ -717,6 +729,7 @@
                     let rr = a.radius + b.radius;
                     if ((a === core && b.mass < Config.MASS_ASTEROID) || (b === core && a.mass < Config.MASS_ASTEROID)) rr = capture;
                     else if (a.mass < Config.MASS_ASTEROID && b.mass < Config.MASS_ASTEROID) rr *= Config.GAS_STICK;
+                    else if (a.mass >= Config.MASS_PLANET && b.mass >= Config.MASS_PLANET) rr *= Config.SOLID_HIT;
                     if (dSq < rr * rr) {
                         if (a.mass >= b.mass) {
                             a.merge(b);
@@ -1114,7 +1127,7 @@
             for (const e of effects) {
                 const k = 1 - e.age / e.life;
                 if (e.kind === 'ring') {
-                    const r = e.speed * e.age;
+                    const r = Math.max(1, e.speed * e.age);
                     const g = ctx.createRadialGradient(e.x, e.y, r * 0.8, e.x, e.y, r);
                     g.addColorStop(0, 'rgba(0,0,0,0)');
                     g.addColorStop(0.85, `rgba(${e.color.join(',')},${0.35 * k})`);
@@ -1203,7 +1216,9 @@
         // ------------------------------------------------------------------
         let lastTime = performance.now(), stepAcc = 0, frame = 0;
         function loop(now) {
-            const rdt = Math.min((now - lastTime) / 1000, 0.1);
+            requestAnimationFrame(loop);
+            // Frame timestamps can arrive slightly out of order; never step time backwards
+            const rdt = Math.max(0, Math.min((now - lastTime) / 1000, 0.1));
             lastTime = now;
             frame++;
 
@@ -1223,7 +1238,6 @@
             updateCamera(rdt, frame);
             render(now / 1000);
             updateStats(now);
-            requestAnimationFrame(loop);
         }
 
         // ------------------------------------------------------------------
