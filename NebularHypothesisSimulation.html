@@ -1244,8 +1244,8 @@
             if (core) {
                 for (const b of bodies) {
                     if (b === core || b.dead || b.locked) continue;
-                    // Its dense envelope also drags in small solid bodies, not just nebula
-                    let rr = b.isSolid && b.mass >= Config.MASS_PLANET ? core.radius + b.radius : capture;
+                    // Nebula is swept up from a wide zone; solid bodies have to actually hit it
+                    let rr = b.isSolid ? core.radius + b.radius : capture;
                     if (b.isSolid && b.mass >= Config.MASS_PLANET) rr *= Config.SOLID_HIT;
                     const dx = b.x - core.x, dy = b.y - core.y;
                     if (dx * dx + dy * dy < rr * rr) core.merge(b);
