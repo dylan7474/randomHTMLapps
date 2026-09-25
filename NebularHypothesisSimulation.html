@@ -469,7 +469,16 @@
             ROT_PROFILE: 0.7,        // 1 = solid-body rotation, 0 = same fraction of orbital speed everywhere
             JITTER: 0.1,             // Random velocity as a fraction of the edge orbital speed
             CORE_CAPTURE: 4,         // The core sweeps up gas within this many of its radii
-            SOLID_HIT: 0.5,          // Contact distance multiplier between planets (and the star)
+            SOLID_HIT: 0.5,          // Contact distance multiplier for the star and moons
+            PLANET_HIT: 0.4,         // ...and between a planet and another solid body. Planets are drawn
+                                     // far bigger than their gravitational reach, so most near misses
+                                     // should pass by (and be flung onto new orbits), not merge
+
+            // Hit-and-run: a fast, glancing hit between planets doesn't always merge them; the smaller
+            // one can bounce off, damaged, and carry on in its own orbit (about half of real giant impacts)
+            HIT_RUN_ANGLE: 0.5,      // Off-centre enough (0 = head-on, 1 = grazing)...
+            HIT_RUN_SPEED: 1.0,      // ...and faster than this many times the pair's escape speed
+            HIT_RUN_LOSS: 0.15,      // Share of the smaller body left behind on the bigger one
 
             // Moons: near a planet (inside part of its Hill sphere) its gravity beats the star's
             HILL_FRACTION: 0.5,      // Solid bodies this deep in a planet's Hill sphere feel its disk's drag
@@ -527,6 +536,7 @@
         let ignitionStep = -1;
         let diskRefreshStep = 0;  // last time fresh gas was added
         let impactCount = 0;      // giant impacts that threw debris into orbit
+        let hitRunCount = 0;      // glancing hits where the smaller planet bounced off
         let moonAnnounced = false;
         let isPaused = false;
         let nextId = 1;
@@ -783,6 +793,7 @@
             ignitionStep = -1;
             diskRefreshStep = 0;
             impactCount = 0;
+            hitRunCount = 0;
             moonAnnounced = false;
             frostR = 0;
             cam.x = 0;
@@ -999,6 +1010,59 @@
             return Math.abs(l) / (speed * dist) > Config.IMPACT_GLANCING ? Math.sign(l) : 0;
         }
 
+        // A fast, glancing hit: the smaller body leaves some of itself behind and bounces off.
+        // Returns false if the hit is slow or head-on enough that the two should merge instead.
+        function hitAndRun(big, small) {
+            const nx0 = small.x - big.x, ny0 = small.y - big.y;
+            const dist = Math.hypot(nx0, ny0);
+            if (dist < 1e-6) return false;
+            const nx = nx0 / dist, ny = ny0 / dist;
+            const rvx = small.vx - big.vx, rvy = small.vy - big.vy;
+            const vn = rvx * nx + rvy * ny, vt = -rvx * ny + rvy * nx;
+            const speed = Math.hypot(rvx, rvy);
+            if (vn >= 0 || speed < 1e-6) return false;
+            const vEsc = Math.sqrt((2 * Config.G * (big.mass + small.mass)) / Math.sqrt(dist * dist + Config.SOFTENING));
+            if (Math.abs(vt) / speed < Config.HIT_RUN_ANGLE || speed < Config.HIT_RUN_SPEED * vEsc) return false;
+
+            const L = Config.HIT_RUN_LOSS;
+            absorb(big, small, small.rock * L, small.ice * L, small.gas * L);
+            if (small.dead) return true;
+
+            // Bounce: most of the head-on part of the motion is lost, the sideways part mostly kept
+            // (momentum is conserved)
+            const M = big.mass + small.mass;
+            const cvx = (big.vx * big.mass + small.vx * small.mass) / M;
+            const cvy = (big.vy * big.mass + small.vy * small.mass) / M;
+            const vn2 = -vn * 0.3, vt2 = vt * 0.9;
+            const ox = nx * vn2 - ny * vt2, oy = ny * vn2 + nx * vt2;
+            small.vx = cvx + ox * (big.mass / M);
+            small.vy = cvy + oy * (big.mass / M);
+            big.vx = cvx - ox * (small.mass / M);
+            big.vy = cvy - oy * (small.mass / M);
+
+            // Move them apart to just touching
+            const cx = (big.x * big.mass + small.x * small.mass) / M;
+            const cy = (big.y * big.mass + small.y * small.mass) / M;
+            const sep = (big.radius + small.radius) * Config.PLANET_HIT + 0.5;
+            small.x = cx + nx * sep * (big.mass / M);
+            small.y = cy + ny * sep * (big.mass / M);
+            big.x = cx - nx * sep * (small.mass / M);
+            big.y = cy - ny * sep * (small.mass / M);
+            small.bounceFrom = big;
+            small.bounceUntil = stepCount + 30;
+            hitRunCount++;
+
+            for (let i = 0; i < 14; i++) {
+                const a = Math.random() * Math.PI * 2;
+                effects.push({
+                    kind: 'spark', x: cx, y: cy, age: 0, life: 0.4 + Math.random() * 0.5,
+                    vx: Math.cos(a), vy: Math.sin(a), speed: 10 + Math.random() * 30,
+                    size: 0.5 + Math.random()
+                });
+            }
+            return true;
+        }
+
         function spawnDebris(host, impactor, spin) {
             // Debris is mostly the impactor's rock and ice
             const solids = impactor.rock + impactor.ice;
@@ -1209,7 +1273,7 @@
         function contactDistance(a, b) {
             const rr = a.radius + b.radius;
             if (!a.isSolid && !b.isSolid) return rr * Config.GAS_STICK;
-            if (a.mass >= Config.MASS_PLANET && b.mass >= Config.MASS_PLANET) return rr * Config.SOLID_HIT;
+            if (a.isSolid && b.isSolid && Math.max(a.mass, b.mass) >= Config.MASS_PLANET) return rr * Config.PLANET_HIT;
             return rr;
         }
 
@@ -1226,6 +1290,7 @@
             // Two solid bodies: they merge; a glancing blow throws debris into orbit
             if (a.isSolid && b.isSolid) {
                 const big = a.mass >= b.mass ? a : b, small = big === a ? b : a;
+                if (big.mass >= Config.MASS_PLANET && small.mass >= Config.MASS_ASTEROID && hitAndRun(big, small)) return;
                 const spin = small.mass >= Config.IMPACT_MIN_MASS ? glancingImpact(a, b, dx, dy) : 0;
                 const impactor = { rock: small.rock, ice: small.ice };
                 big.merge(small);
@@ -1266,6 +1331,8 @@
 
             const check = (a, b) => {
                 if (a.dead || b.dead) return;
+                // A pair that just bounced apart gets a moment to separate
+                if ((a.bounceFrom === b || b.bounceFrom === a) && stepCount < Math.max(a.bounceUntil || 0, b.bounceUntil || 0)) return;
                 const dx = b.x - a.x, dy = b.y - a.y;
                 const rr = contactDistance(a, b);
                 if (dx * dx + dy * dy < rr * rr) collide(a, b, dx, dy);
@@ -1518,12 +1585,23 @@
             if (frame % 15 === 0 && bodies.length) {
                 let p;
                 if (star) {
-                    p = Config.CLOUD_RADIUS * 0.4;
+                    // Planets still bound to the star, nearest first. Stop at a big gap, so one
+                    // planet flung far out doesn't shrink the rest of the system to dots.
+                    const d = [];
                     for (const b of bodies) {
-                        if (b === star || !b.isSolid || b.mass < Config.MASS_PLANET) continue;
-                        const dist = Math.hypot(b.x - cam.x, b.y - cam.y);
-                        if (dist < Config.CLOUD_RADIUS * 6) p = Math.max(p, dist * 1.1);
+                        if (b === star || !b.isSolid || b.locked || b.mass < Config.MASS_PLANET) continue;
+                        const rx = b.x - star.x, ry = b.y - star.y, vx = b.vx - star.vx, vy = b.vy - star.vy;
+                        const r = Math.hypot(rx, ry);
+                        if (0.5 * (vx * vx + vy * vy) >= (Config.G * star.mass) / r) continue;
+                        d.push(r);
                     }
+                    d.sort((a, b) => a - b);
+                    let edge = Config.CLOUD_RADIUS * 0.4;
+                    for (let i = 0; i < d.length; i++) {
+                        if (i > 0 && d[i] > Math.max(d[i - 1], Config.CLOUD_RADIUS * 0.6) * 2.2) break;
+                        edge = Math.max(edge, d[i]);
+                    }
+                    p = edge * 1.15;
                 } else {
                     const d = [];
                     for (const b of bodies) d.push(Math.hypot(b.x - cam.x, b.y - cam.y));
@@ -1772,7 +1850,9 @@
             ctx.globalAlpha = 1;
             for (const b of bodies) {
                 if (!b.isSolid || b === star || b === core) continue;
-                const r = Math.max(b.radius, 0.8 / cam.scale);
+                // Planets stay visible as discs even when zoomed right out
+                const minPx = b.mass >= Config.MASS_GAS_GIANT ? 3.5 : b.mass >= Config.MASS_PLANET ? 2.5 : 0.8;
+                const r = Math.max(b.radius, minPx / cam.scale);
                 if (!inView(b.x, b.y, r)) continue;
                 drawSolidBody(b, r, light);
             }
