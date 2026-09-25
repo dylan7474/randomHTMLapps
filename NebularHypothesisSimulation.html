@@ -4,8 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stellar Formation Simulation</title>
-    <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             margin: 0;
             padding: 0;
@@ -14,96 +17,348 @@
             color: #fff;
             font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         }
+
         canvas {
             display: block;
             width: 100vw;
             height: 100vh;
+            touch-action: none;
+            cursor: crosshair;
         }
+
         .glass-panel {
             background: rgba(15, 23, 42, 0.7);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
-        /* Custom scrollbar for control panel */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+
+        #panel {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            width: 320px;
+            max-height: calc(100vh - 32px);
+            overflow-y: auto;
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+            z-index: 10;
+        }
+
+        #panel::-webkit-scrollbar { width: 6px; }
+        #panel::-webkit-scrollbar-track { background: transparent; }
+        #panel::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 3px; }
+        #panel { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.2) transparent; }
+
+        #panel.hidden {
+            display: none;
+        }
+
+        .panel-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        h1 {
+            font-size: 20px;
+            font-weight: 700;
+            margin: 0 0 2px;
+        }
+
+        .subtitle {
+            font-size: 12px;
+            color: #9ca3af;
+            margin: 0 0 14px;
+        }
+
+        .icon-btn {
+            background: none;
+            border: none;
+            color: #9ca3af;
+            font-size: 20px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 6px;
+        }
+
+        .icon-btn:hover {
+            color: #fff;
+        }
+
+        #panelToggle {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            z-index: 10;
+            display: none;
+            padding: 8px 12px;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 18px;
+        }
+
+        #panelToggle.show {
+            display: block;
+        }
+
+        .stack > * + * {
+            margin-top: 14px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 8px;
+            font-size: 14px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .stats .wide {
+            grid-column: span 2;
+        }
+
+        .mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+
+        .c-blue { color: #60a5fa; }
+        .c-green { color: #4ade80; }
+        .c-yellow { color: #facc15; }
+        .c-purple { color: #c084fc; }
+
+        #phase {
+            font-size: 13px;
+            color: #e5e7eb;
+        }
+
+        .progress {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+
+        #starBar {
+            height: 100%;
+            width: 0;
+            background: linear-gradient(90deg, #b91c1c, #f97316, #fde68a);
+            transition: width 0.25s;
+        }
+
+        #starBar.lit {
+            background: linear-gradient(90deg, #fde68a, #fffbeb);
+        }
+
+        .progress-label {
+            font-size: 11px;
+            color: #9ca3af;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        label.slider {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #9ca3af;
+        }
+
+        input[type=range] {
+            width: 100%;
+            accent-color: #3b82f6;
+            margin: 4px 0 0;
+        }
+
+        .note {
+            font-size: 10px;
+            color: #6b7280;
+            margin: 2px 0 0;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            margin: 16px 0;
+        }
+
+        .buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .btn {
+            border: none;
+            color: #fff;
+            font-size: 14px;
+            padding: 8px 0;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.15s;
+            width: 100%;
+        }
+
+        .btn:focus-visible, .icon-btn:focus-visible, input:focus-visible {
+            outline: 2px solid #93c5fd;
+            outline-offset: 2px;
+        }
+
+        .btn-blue { background: #2563eb; }
+        .btn-blue:hover { background: #3b82f6; }
+        .btn-yellow { background: #ca8a04; }
+        .btn-yellow:hover { background: #eab308; }
+        .btn-red { background: #dc2626; }
+        .btn-red:hover { background: #ef4444; }
+        .btn-indigo { background: #4f46e5; margin-top: 8px; }
+        .btn-indigo:hover { background: #6366f1; }
+
+        .legend h3 {
+            font-size: 12px;
+            font-weight: 600;
+            color: #d1d5db;
+            margin: 0 0 8px;
+        }
+
+        .legend ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            font-size: 12px;
+        }
+
+        .legend li {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 7px;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex: none;
+        }
+
+        .hint {
+            font-size: 11px;
+            color: #9ca3af;
+            line-height: 1.5;
+        }
+
+        #toast {
+            position: absolute;
+            top: 12%;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 26px;
+            font-weight: 300;
+            letter-spacing: 6px;
+            text-transform: uppercase;
+            color: #fff7d6;
+            text-shadow: 0 0 20px rgba(255, 200, 120, 0.8);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 1s;
+            white-space: nowrap;
+        }
+
+        #toast.show {
+            opacity: 1;
+        }
+
+        @media (max-width: 600px) {
+            #panel {
+                width: calc(100vw - 32px);
+                max-height: 60vh;
+            }
+
+            #toast {
+                font-size: 18px;
+                letter-spacing: 4px;
+            }
+        }
     </style>
 </head>
 <body>
 
-    <!-- Canvas for rendering -->
     <canvas id="simCanvas"></canvas>
+    <div id="toast"></div>
 
-    <!-- UI Overlay -->
-    <div class="absolute top-4 left-4 glass-panel p-4 rounded-xl shadow-2xl w-80 max-h-[90vh] overflow-y-auto z-10 pointer-events-auto">
-        <h1 class="text-xl font-bold mb-1 text-white">Stellar Genesis</h1>
-        <p class="text-xs text-gray-400 mb-4">N-Body Accretion Simulation</p>
+    <button id="panelToggle" class="glass-panel" aria-label="Show controls">☰</button>
 
-        <div class="space-y-4">
-            <!-- Stats -->
-            <div class="grid grid-cols-2 gap-2 text-sm bg-black/30 p-3 rounded-lg border border-white/5">
-                <div>Bodies: <span id="statBodies" class="font-mono text-blue-400">0</span></div>
-                <div>Years: <span id="statTime" class="font-mono text-green-400">0</span></div>
-                <div class="col-span-2">Largest Mass: <span id="statMass" class="font-mono text-yellow-400">0</span> M⊕</div>
+    <div id="panel" class="glass-panel">
+        <div class="panel-head">
+            <div>
+                <h1>Stellar Genesis</h1>
+                <p class="subtitle">N-Body Accretion Simulation</p>
             </div>
+            <button id="panelClose" class="icon-btn" aria-label="Hide controls">×</button>
+        </div>
 
-            <!-- Controls -->
-            <div class="space-y-3">
-                <div>
-                    <label class="text-xs text-gray-400 flex justify-between">
-                        <span>Simulation Speed (dt)</span>
-                        <span id="dtVal">0.1</span>
-                    </label>
-                    <input type="range" id="dtSlider" min="0.01" max="0.5" step="0.01" value="0.1" class="w-full accent-blue-500">
-                </div>
-                
-                <div>
-                    <label class="text-xs text-gray-400 flex justify-between">
-                        <span>Gravity Constant (G)</span>
-                        <span id="gVal">0.8</span>
-                    </label>
-                    <input type="range" id="gSlider" min="0.1" max="2.0" step="0.1" value="0.8" class="w-full accent-blue-500">
-                </div>
-
-                <div>
-                    <label class="text-xs text-gray-400 flex justify-between">
-                        <span>Initial Spin</span>
-                        <span id="spinVal">0.92</span>
-                    </label>
-                    <input type="range" id="spinSlider" min="0.5" max="2.0" step="0.01" value="0.92" class="w-full accent-blue-500">
-                </div>
-
-                <div>
-                    <label class="text-xs text-gray-400 flex justify-between">
-                        <span>Gas Friction</span>
-                        <span id="fricVal">0.995</span>
-                    </label>
-                    <input type="range" id="fricSlider" min="0.990" max="1.000" step="0.001" value="0.995" class="w-full accent-blue-500">
-                    <p class="text-[10px] text-gray-500 mt-1">Causes matter to fall inwards and clump</p>
+        <div class="stack">
+            <div class="stats">
+                <div>Bodies: <span id="statBodies" class="mono c-blue">0</span></div>
+                <div>Time: <span id="statTime" class="mono c-green">0</span> Myr</div>
+                <div>Largest: <span id="statMass" class="mono c-yellow">0</span> M⊕</div>
+                <div>Planets: <span id="statPlanets" class="mono c-purple">0</span></div>
+                <div class="wide" id="phase">Collapsing cloud</div>
+                <div class="wide">
+                    <div class="progress-label"><span>Core's share of the mass</span><span id="starPct">0%</span></div>
+                    <div class="progress"><div id="starBar"></div></div>
                 </div>
             </div>
 
-            <hr class="border-white/10">
-
-            <!-- Actions -->
-            <div class="grid grid-cols-2 gap-2">
-                <button id="btnPause" class="bg-blue-600 hover:bg-blue-500 text-white text-sm py-2 rounded transition">Pause</button>
-                <button id="btnReset" class="bg-red-600 hover:bg-red-500 text-white text-sm py-2 rounded transition">Restart Cloud</button>
+            <div>
+                <label class="slider" for="speedSlider"><span>Simulation Speed</span><span id="speedVal">1×</span></label>
+                <input type="range" id="speedSlider" min="0.25" max="4" step="0.25" value="1">
             </div>
-            <button id="btnSpawnDisk" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm py-2 rounded transition">Inject Gas Cloud</button>
 
-            <!-- Legend -->
-            <div class="mt-4 pt-4 border-t border-white/10">
-                <h3 class="text-xs font-semibold text-gray-300 mb-2">Evolution Stages</h3>
-                <ul class="text-xs space-y-2">
-                    <li class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-blue-300 opacity-50 shadow-[0_0_5px_rgba(147,197,253,0.5)]"></span> Nebula Gas / Dust</li>
-                    <li class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-gray-400"></span> Asteroids / Protoplanets</li>
-                    <li class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-orange-400"></span> Gas Giants</li>
-                    <li class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-yellow-100 shadow-[0_0_10px_rgba(255,255,200,1)]"></span> Ignited Star</li>
-                </ul>
+            <div>
+                <label class="slider" for="gSlider"><span>Gravity Constant (G)</span><span id="gVal">0.8</span></label>
+                <input type="range" id="gSlider" min="0.1" max="2.0" step="0.1" value="0.8">
             </div>
+
+            <div>
+                <label class="slider" for="spinSlider"><span>Initial Spin</span><span id="spinVal">1.00</span></label>
+                <input type="range" id="spinSlider" min="0.5" max="2.0" step="0.01" value="1">
+                <p class="note">Applies when the cloud restarts</p>
+            </div>
+
+            <div>
+                <label class="slider" for="dragSlider"><span>Gas Drag</span><span id="dragVal">1.0×</span></label>
+                <input type="range" id="dragSlider" min="0" max="3" step="0.1" value="1">
+                <p class="note">Makes matter spiral inwards and clump</p>
+            </div>
+        </div>
+
+        <hr>
+
+        <div class="buttons">
+            <button id="btnPause" class="btn btn-blue">Pause</button>
+            <button id="btnReset" class="btn btn-red">Restart Cloud</button>
+        </div>
+        <button id="btnSpawnDisk" class="btn btn-indigo">Inject Gas Cloud</button>
+
+        <hr>
+
+        <div class="legend">
+            <h3>Evolution Stages</h3>
+            <ul>
+                <li><span class="dot" style="background:#93c5fd;opacity:.6;box-shadow:0 0 6px rgba(147,197,253,.6)"></span> Nebula Gas / Dust</li>
+                <li><span class="dot" style="background:#9ca3af"></span> Asteroids / Protoplanets</li>
+                <li><span class="dot" style="background:#d9a066"></span> Gas Giants</li>
+                <li><span class="dot" style="background:#dc2626;box-shadow:0 0 8px rgba(239,68,68,.9)"></span> Protostar</li>
+                <li><span class="dot" style="background:#fef9c3;box-shadow:0 0 10px rgba(255,255,200,1)"></span> Ignited Star</li>
+            </ul>
+            <p class="hint">Click to drop a planet into orbit, or drag to throw one. Scroll or pinch to zoom. Space pauses.</p>
         </div>
     </div>
 
@@ -112,119 +367,181 @@
          * Physical constants and simulation parameters
          */
         const Config = {
-            G: 0.8,                  // Increased gravity for more active accretion
-            SOFTENING: 15,           // Tuned softening to absorb chaotic slingshot forces safely
-            DT: 0.1,                 // Time step per frame
-            FRICTION: 0.995,         // Drag to help gas spiral in
-            SPIN_MULTIPLIER: 0.92,   // Spin determines outer disk expansion
-            
+            G: 0.8,
+            SOFTENING: 15,           // Keeps close encounters from slingshotting bodies away
+            DT: 0.1,                 // Fixed physics step; the speed slider changes steps per second
+            SPEED: 1,                // Multiplier on 60 steps per second
+            DRAG: 1.0,               // Gas drag multiplier
+            SPIN_MULTIPLIER: 1.0,    // How fast the cloud turns, relative to orbital speed at its edge
+
             // Mass thresholds for visual categorization
             MASS_ASTEROID: 4,
-            MASS_PLANET: 10,         // Planets completely decouple from gas friction to orbit forever
+            MASS_PLANET: 10,
             MASS_GAS_GIANT: 60,
-            MASS_STAR: 900,          // Star must consume > 60% of total mass before ignition to prevent planets wandering off
 
-            // Initial cloud generation
-            INITIAL_PARTICLES: 1200, // Higher resolution for smoother accretion
-            CLOUD_RADIUS: Math.min(window.innerWidth, window.innerHeight) * 0.45,
-            BASE_MASS: 1.2,          // Total cloud mass is ~1440
-            CENTER_MASS_SEED: 0      // Set to 0: completely organic star formation
+            // The core becomes a protostar, then ignites once it holds enough of the system's mass
+            PROTOSTAR_FRACTION: 0.04,
+            ANCHOR_FRACTION: 0.2,    // Gas orbits the core once it holds this much, else the centre of mass
+            ROT_PROFILE: 0.7,        // 1 = solid-body rotation, 0 = same fraction of orbital speed everywhere
+            JITTER: 0.1,             // Random velocity as a fraction of the edge orbital speed
+            CORE_CAPTURE: 4,
+            GAS_STICK: 1.0,          // Contact distance multiplier when two gas particles meet
+            HEADWIND: 0.1,
+            PLANET_DRAG: 0.5,        // Extra drag factor for planets (makes them migrate inwards)          // How much slower than orbital speed the gas moves         // The core sweeps up gas within this many of its radii
+            DENSITY_POWER: 0.85,     // Higher = cloud more concentrated towards the middle
+            STAR_FRACTION: 0.35,
+            MIN_STAR_MASS: 400,
+
+            // After ignition the young star's wind clears the leftover gas, and the disk thins out
+            WIND_STRENGTH: 60,
+            WIND_DECAY_STEPS: 1200,
+            DISK_DECAY_STEPS: 500,
+
+            // Initial cloud generation (world units, independent of screen size)
+            INITIAL_PARTICLES: 1200,
+            CLOUD_RADIUS: 320,
+            BASE_MASS: 1.2,
+
+            MYR_PER_STEP: 0.0005
         };
 
         const canvas = document.getElementById('simCanvas');
-        const ctx = canvas.getContext('2d', { alpha: false }); // Optimize
-        let width, height;
+        const ctx = canvas.getContext('2d', { alpha: false });
+        let width, height, dpr;
 
         let bodies = [];
-        let shockwaves = []; // To store stellar ignition animations
-        let cameraShake = 0; // Intensity of screen shake
-        let cameraX = 0, cameraY = 0; // Dynamic camera tracking
-        let cameraScale = 1.0; // Dynamic camera zoom
-        let simulationTime = 0;
+        let effects = [];         // ignition flashes, shock rings and sparks
+        let star = null;          // the ignited star, once there is one
+        let heaviest = null;
+        let coreBody = null;      // the protostar (or star) once one stands out
+        let totalMass = 0;
+        let anchor = { x: 0, y: 0, vx: 0, vy: 0, mass: 0 };
+        let stepCount = 0;
+        let ignitionStep = -1;
+        let diskRefreshStep = 0;  // last time fresh gas was added
         let isPaused = false;
-        let animationFrameId;
+        let nextId = 1;
 
-        // UI Elements
-        const uiBodies = document.getElementById('statBodies');
-        const uiTime = document.getElementById('statTime');
-        const uiMass = document.getElementById('statMass');
-        const uiDt = document.getElementById('dtSlider');
-        const uiG = document.getElementById('gSlider');
-        const uiSpin = document.getElementById('spinSlider');
-        const uiFric = document.getElementById('fricSlider');
+        const cam = { x: 0, y: 0, scale: 1, zoom: 1, shake: 0, flash: 0, fitExtent: Config.CLOUD_RADIUS };
+        let aim = null;           // current drag-to-throw gesture
 
+        const ui = {
+            bodies: document.getElementById('statBodies'),
+            time: document.getElementById('statTime'),
+            mass: document.getElementById('statMass'),
+            planets: document.getElementById('statPlanets'),
+            phase: document.getElementById('phase'),
+            starPct: document.getElementById('starPct'),
+            starBar: document.getElementById('starBar'),
+            toast: document.getElementById('toast')
+        };
+
+        // ------------------------------------------------------------------
+        // Colours
+        // ------------------------------------------------------------------
+        const ROCKY_COLORS = ['#b0835a', '#8f9aa3', '#c2624a', '#6f8f72', '#9c8f7a', '#5f7fa6', '#a3876b'];
+        const GIANT_PALETTES = [
+            ['#d9a066', '#b5763f', '#f0d2a0'],
+            ['#c9b28a', '#a08a62', '#e8dcc0'],
+            ['#7fb3d9', '#5a8fbf', '#b8dcf0'],
+            ['#d98f6f', '#b0604a', '#f2c0a0'],
+            ['#9fc9b8', '#6f9f8f', '#d0ebe0']
+        ];
+
+        // Gas colour by distance from the core: hot near the middle, cold at the edge
+        const GAS_GRADIENT = [
+            [0.0, [255, 205, 150]],
+            [0.2, [255, 125, 90]],
+            [0.45, [205, 90, 175]],
+            [0.7, [115, 105, 240]],
+            [1.0, [80, 145, 255]]
+        ];
+
+        function gasColor(t) {
+            t = Math.max(0, Math.min(1, t));
+            for (let i = 1; i < GAS_GRADIENT.length; i++) {
+                const [t1, c1] = GAS_GRADIENT[i];
+                if (t <= t1) {
+                    const [t0, c0] = GAS_GRADIENT[i - 1];
+                    const k = (t - t0) / (t1 - t0);
+                    return c0.map((v, j) => Math.round(v + (c1[j] - v) * k));
+                }
+            }
+            return GAS_GRADIENT[GAS_GRADIENT.length - 1][1];
+        }
+
+        // Star colour by mass: small stars orange, big ones blue-white
+        function starColor(mass) {
+            const t = Math.max(0, Math.min(1, (mass - 400) / 1600));
+            const stops = [[255, 170, 90], [255, 236, 190], [255, 250, 240], [200, 220, 255]];
+            const f = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(f)), k = f - i;
+            return stops[i].map((v, j) => Math.round(v + (stops[i + 1][j] - v) * k));
+        }
+
+        // Pre-rendered soft glow sprites, cached per colour
+        const spriteCache = new Map();
+        function glowSprite(rgb, falloff = 'soft') {
+            const key = rgb.join(',') + falloff;
+            let s = spriteCache.get(key);
+            if (s) return s;
+            const S = 128;
+            s = document.createElement('canvas');
+            s.width = s.height = S;
+            const g = s.getContext('2d');
+            const grad = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+            const [r, gg, b] = rgb;
+            if (falloff === 'soft') {
+                grad.addColorStop(0, `rgba(${r},${gg},${b},1)`);
+                grad.addColorStop(0.25, `rgba(${r},${gg},${b},0.55)`);
+                grad.addColorStop(0.55, `rgba(${r},${gg},${b},0.15)`);
+                grad.addColorStop(1, `rgba(${r},${gg},${b},0)`);
+            } else {
+                grad.addColorStop(0, `rgba(${r},${gg},${b},1)`);
+                grad.addColorStop(0.08, `rgba(${r},${gg},${b},0.8)`);
+                grad.addColorStop(0.2, `rgba(${r},${gg},${b},0.25)`);
+                grad.addColorStop(0.5, `rgba(${r},${gg},${b},0.06)`);
+                grad.addColorStop(1, `rgba(${r},${gg},${b},0)`);
+            }
+            g.fillStyle = grad;
+            g.fillRect(0, 0, S, S);
+            spriteCache.set(key, s);
+            return s;
+        }
+
+        const GAS_SPRITES = Array.from({ length: 16 }, (_, i) => glowSprite(gasColor(i / 15)));
+
+        // ------------------------------------------------------------------
+        // Bodies
+        // ------------------------------------------------------------------
         class Body {
             constructor(x, y, vx, vy, mass) {
+                this.id = nextId++;
                 this.x = x;
                 this.y = y;
                 this.vx = vx;
                 this.vy = vy;
                 this.mass = mass;
+                this.dead = false;
+                // Picked once so a planet keeps its look as it grows
+                this.rocky = ROCKY_COLORS[Math.floor(Math.random() * ROCKY_COLORS.length)];
+                this.palette = GIANT_PALETTES[Math.floor(Math.random() * GIANT_PALETTES.length)];
+                this.tilt = (Math.random() - 0.5) * 0.8;
+                this.bandSeed = Math.random() * 10;
+                this.trail = [];
                 this.updateProperties();
-                this.dead = false; // Flag for deletion after merge
             }
 
-            // Recalculate radius and visual properties based on mass
             updateProperties() {
                 let density = 1.0;
                 if (this.mass >= Config.MASS_PLANET) density = 1.5;
-                if (this.mass >= Config.MASS_GAS_GIANT) density = 0.8; 
-                if (this.mass >= Config.MASS_STAR) density = 2.0;      
-                
-                // Physical radii kept tight so they must gravitationally capture each other
-                this.radius = Math.max(1.5, Math.pow((this.mass / density) * 10, 1/3));
+                if (this.mass >= Config.MASS_GAS_GIANT) density = 0.8;
+                if (this === star) density = 2.0;
+                this.radius = Math.max(1.5, Math.pow((this.mass / density) * 10, 1 / 3));
 
-                const oldType = this.type;
-                
-                if (this.mass >= Config.MASS_STAR) {
-                    this.type = 'star';
-                    this.color = '#FFFACD'; // LemonChiffon
-                    this.glowColor = 'rgba(255, 230, 150, 0.8)';
-                    
-                    // Trigger the ignition animation once
-                    if (oldType && oldType !== 'star') {
-                        this.ignite();
-                    }
-                } else if (this.mass >= Config.MASS_GAS_GIANT) {
-                    this.type = 'gas_giant';
-                    this.color = '#FDBA74'; 
-                    this.glowColor = 'rgba(253, 186, 116, 0.4)';
-                } else if (this.mass >= Config.MASS_PLANET) {
-                    this.type = 'planet';
-                    const hue = Math.floor(Math.abs(this.x + this.y) % 360);
-                    this.color = `hsl(${hue}, 40%, 50%)`;
-                    this.glowColor = null;
-                } else if (this.mass >= Config.MASS_ASTEROID) {
-                    this.type = 'asteroid';
-                    this.color = '#9CA3AF'; 
-                    this.glowColor = null;
-                } else {
-                    this.type = 'gas';
-                    this.color = '#93C5FD'; 
-                    this.glowColor = 'rgba(147, 197, 253, 0.2)';
-                }
-            }
-
-            ignite() {
-                shockwaves.push({
-                    x: this.x,
-                    y: this.y,
-                    radius: this.radius,
-                    energy: 1.0, 
-                    rays: Array.from({length: 16}, () => ({
-                        angle: Math.random() * Math.PI * 2,
-                        lengthMultiplier: 0.5 + Math.random() * 1.5,
-                        width: Math.random() * 4 + 1
-                    })),
-                    ejecta: Array.from({length: 80}, () => ({
-                        angle: Math.random() * Math.PI * 2,
-                        speed: 800 + Math.random() * 1500, 
-                        dist: this.radius,
-                        size: Math.random() * 3 + 1,
-                        life: 1.0
-                    }))
-                });
-                cameraShake = 25;
+                if (this.mass >= Config.MASS_GAS_GIANT) this.type = 'gas_giant';
+                else if (this.mass >= Config.MASS_PLANET) this.type = 'planet';
+                else if (this.mass >= Config.MASS_ASTEROID) this.type = 'asteroid';
+                else this.type = 'gas';
             }
 
             merge(other) {
@@ -233,511 +550,797 @@
                 this.vy = (this.vy * this.mass + other.vy * other.mass) / totalMass;
                 this.x = (this.x * this.mass + other.x * other.mass) / totalMass;
                 this.y = (this.y * this.mass + other.y * other.mass) / totalMass;
-                
                 this.mass = totalMass;
+                if (other === star) star = this;
                 this.updateProperties();
                 other.dead = true;
             }
-
-            draw(ctx, viewLeft, viewRight, viewTop, viewBottom) {
-                if (!isFinite(this.x) || !isFinite(this.y) || 
-                    this.x < viewLeft || this.x > viewRight || 
-                    this.y < viewTop || this.y > viewBottom) return;
-
-                ctx.beginPath();
-                
-                if (this.glowColor) {
-                    const glowRadius = Math.max(0.1, this.type === 'star' ? this.radius * 4 : 
-                                     this.type === 'gas_giant' ? this.radius * 2 : 
-                                     this.radius * 3); 
-                    
-                    const grad = ctx.createRadialGradient(this.x, this.y, this.radius * 0.5, this.x, this.y, glowRadius);
-                    grad.addColorStop(0, this.glowColor);
-                    grad.addColorStop(1, 'rgba(0,0,0,0)');
-                    ctx.fillStyle = grad;
-                    ctx.arc(this.x, this.y, glowRadius, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.beginPath();
-                }
-
-                ctx.fillStyle = this.color;
-                ctx.arc(this.x, this.y, Math.max(0.1, this.radius), 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
-
-        function resize() {
-            width = window.innerWidth;
-            height = window.innerHeight;
-            canvas.width = width;
-            canvas.height = height;
         }
 
         function initSimulation() {
             bodies = [];
-            shockwaves = [];
-            simulationTime = 0;
-            cameraX = 0;
-            cameraY = 0;
-            cameraScale = 1.0;
-            
-            const cx = 0; 
-            const cy = 0;
-            const totalCloudMass = Config.INITIAL_PARTICLES * Config.BASE_MASS;
+            effects = [];
+            star = null;
+            heaviest = null;
+            coreBody = null;
+            stepCount = 0;
+            ignitionStep = -1;
+            diskRefreshStep = 0;
+            cam.x = 0;
+            cam.y = 0;
+            cam.fitExtent = Config.CLOUD_RADIUS;
+            cam.scale = targetScale();
+            ui.toast.classList.remove('show');
 
+            const R = Config.CLOUD_RADIUS;
+            const totalCloudMass = Config.INITIAL_PARTICLES * Config.BASE_MASS;
+            const densityPower = Config.DENSITY_POWER;
+            const vEdge = Math.sqrt((Config.G * totalCloudMass) / R);
             let sysVx = 0, sysVy = 0, sysMass = 0;
 
             for (let i = 0; i < Config.INITIAL_PARTICLES; i++) {
-                // Continuous density gradient ensuring heavy core formation naturally
-                const densityPower = 0.85;
-                const r = Config.CLOUD_RADIUS * Math.pow(Math.random(), densityPower);
+                const r = R * Math.pow(Math.random(), densityPower);
                 const theta = Math.random() * Math.PI * 2;
-                
-                const x = cx + r * Math.cos(theta);
-                const y = cy + r * Math.sin(theta);
+                const x = r * Math.cos(theta);
+                const y = r * Math.sin(theta);
 
-                // Math matched precisely to density gradient to establish stable initial orbits
-                const radiusRatio = r / Config.CLOUD_RADIUS;
-                const enclosedMass = totalCloudMass * Math.pow(radiusRatio, 1.0 / densityPower);
-                const orbitalVelocityMag = Math.sqrt((Config.G * enclosedMass) / Math.max(1, r)) * Config.SPIN_MULTIPLIER;
-                
-                let vx = -Math.sin(theta) * orbitalVelocityMag + (Math.random() - 0.5) * orbitalVelocityMag * 0.10;
-                let vy = Math.cos(theta) * orbitalVelocityMag + (Math.random() - 0.5) * orbitalVelocityMag * 0.10;
+                // The cloud turns roughly as one body: the inner gas has little angular momentum and
+                // falls in to build the star, the outer gas keeps enough spin to settle into a disk
+                const v = vEdge * Config.SPIN_MULTIPLIER * Math.pow(r / R, Config.ROT_PROFILE);
+                const jitter = vEdge * Config.JITTER;
+                const vx = -Math.sin(theta) * v + (Math.random() - 0.5) * jitter;
+                const vy = Math.cos(theta) * v + (Math.random() - 0.5) * jitter;
 
                 const mass = Config.BASE_MASS * (0.5 + Math.random());
                 bodies.push(new Body(x, y, vx, vy, mass));
-                
                 sysVx += vx * mass;
                 sysVy += vy * mass;
                 sysMass += mass;
             }
 
-            // Zero out system momentum so the system doesn't drift
+            // Zero the net momentum so the system doesn't drift
             sysVx /= sysMass;
             sysVy /= sysMass;
-            for (let b of bodies) {
+            for (const b of bodies) {
                 b.vx -= sysVx;
                 b.vy -= sysVy;
             }
         }
 
         function injectGasCloud() {
-            let heaviest = bodies[0];
-            for (let b of bodies) {
-                if (!b.dead && b.mass > (heaviest ? heaviest.mass : 0)) heaviest = b;
-            }
-            let sysM = 0, sysX = 0, sysY = 0;
-            if (heaviest) {
-                for (let b of bodies) {
-                    if (b.dead) continue;
-                    let dx = b.x - heaviest.x;
-                    let dy = b.y - heaviest.y;
-                    if (dx*dx + dy*dy < Config.CLOUD_RADIUS * Config.CLOUD_RADIUS * 10) {
-                        sysM += b.mass;
-                        sysX += b.x * b.mass;
-                        sysY += b.y * b.mass;
-                    }
-                }
-                if (sysM > 0) { sysX /= sysM; sysY /= sysM; }
-            }
-
-            const injectCount = 200;
-            const outerRadius = Config.CLOUD_RADIUS * 1.5;
-            
-            for (let i = 0; i < injectCount; i++) {
-                const r = outerRadius * (0.8 + Math.random() * 0.4);
+            const centre = heaviest || anchor;
+            const R = Config.CLOUD_RADIUS * 1.5;
+            for (let i = 0; i < 200; i++) {
+                const r = R * (0.8 + Math.random() * 0.4);
                 const theta = Math.random() * Math.PI * 2;
-                const x = sysX + r * Math.cos(theta);
-                const y = sysY + r * Math.sin(theta);
-
-                const velMag = Math.sqrt((Config.G * sysM) / Math.max(1, r)) * 0.9 * Config.SPIN_MULTIPLIER; 
-                let vx = -Math.sin(theta) * velMag + (Math.random() - 0.5);
-                let vy = Math.cos(theta) * velMag + (Math.random() - 0.5);
-
-                bodies.push(new Body(x, y, vx, vy, Config.BASE_MASS * 0.5));
+                const v = Math.sqrt((Config.G * totalMass) / r) * 0.9 * Config.SPIN_MULTIPLIER;
+                // Orbit the current centre, moving along with it
+                bodies.push(new Body(
+                    centre.x + r * Math.cos(theta),
+                    centre.y + r * Math.sin(theta),
+                    centre.vx - Math.sin(theta) * v + (Math.random() - 0.5),
+                    centre.vy + Math.cos(theta) * v + (Math.random() - 0.5),
+                    Config.BASE_MASS * 0.5
+                ));
             }
+            diskRefreshStep = stepCount;
         }
 
-        function updatePhysics() {
-            if (isPaused) return;
+        // How much gas disk is left to drag on things (fades after ignition, refreshed by new gas)
+        function diskStrength() {
+            if (ignitionStep < 0) return 1;
+            const since = stepCount - Math.max(ignitionStep, diskRefreshStep);
+            return diskRefreshStep > ignitionStep && since < 0 ? 1 : Math.exp(-since / Config.DISK_DECAY_STEPS);
+        }
 
+        // ------------------------------------------------------------------
+        // Physics: one fixed step
+        // ------------------------------------------------------------------
+        function step() {
+            const dt = Config.DT;
+            stepCount++;
+
+            // Heaviest body, total mass and centre of mass
+            heaviest = null;
+            totalMass = 0;
+            let cmX = 0, cmY = 0, cmVx = 0, cmVy = 0;
+            for (const b of bodies) {
+                totalMass += b.mass;
+                cmX += b.x * b.mass;
+                cmY += b.y * b.mass;
+                cmVx += b.vx * b.mass;
+                cmVy += b.vy * b.mass;
+                if (!heaviest || b.mass > heaviest.mass) heaviest = b;
+            }
+            if (!heaviest) return;
+            cmX /= totalMass; cmY /= totalMass; cmVx /= totalMass; cmVy /= totalMass;
+
+            // Gas orbits the protostar once there is one, otherwise the cloud's centre of mass
+            const hasCore = star || heaviest.mass >= Config.PROTOSTAR_FRACTION * totalMass;
+            const anchorOnCore = star || heaviest.mass >= Config.ANCHOR_FRACTION * totalMass;
+            anchor = anchorOnCore
+                ? { x: heaviest.x, y: heaviest.y, vx: heaviest.vx, vy: heaviest.vy, mass: heaviest.mass }
+                : { x: cmX, y: cmY, vx: cmVx, vy: cmVy, mass: 0 };
+
+            // Gas drag: friction damps each body's radial motion (so the disk settles into orbits)
+            // and slowly bleeds away its orbital speed (so it spirals in). It never adds spin.
+            // Heavier bodies feel much less of it.
+            const drag = Config.DRAG * 0.01 * diskStrength() * (dt / 0.1);
+            if (drag > 0) {
+                for (const b of bodies) {
+                    if (b === heaviest && anchorOnCore) continue;
+                    const rx = b.x - anchor.x, ry = b.y - anchor.y;
+                    const rSq = rx * rx + ry * ry;
+                    if (rSq < 25) continue;
+                    const r = Math.sqrt(rSq);
+                    const ux = rx / r, uy = ry / r;
+                    const rvx = b.vx - anchor.vx, rvy = b.vy - anchor.vy;
+                    const vr = rvx * ux + rvy * uy;
+                    const vt = -rvx * uy + rvy * ux;
+                    const ratio = Math.min(1, Config.BASE_MASS / b.mass);
+                    const k = drag * (b.mass < Config.MASS_PLANET ? Math.pow(ratio, 0.6) : ratio * Config.PLANET_DRAG);
+                    const vr2 = vr * (1 - k);
+                    const vt2 = vt * (1 - k * Config.HEADWIND);
+                    b.vx = anchor.vx + ux * vr2 - uy * vt2;
+                    b.vy = anchor.vy + uy * vr2 + ux * vt2;
+                }
+            }
+
+            // The young star's wind pushes the remaining gas outwards, fading over time
+            if (star) {
+                const w = Config.WIND_STRENGTH * Math.exp(-(stepCount - ignitionStep) / Config.WIND_DECAY_STEPS) * (star.mass / 500);
+                if (w > 0.01) {
+                    for (const b of bodies) {
+                        if (b.mass >= Config.MASS_ASTEROID || b === star) continue;
+                        const rx = b.x - star.x, ry = b.y - star.y;
+                        const r = Math.sqrt(rx * rx + ry * ry) || 1;
+                        const a = (w / (r + 40)) * dt;
+                        b.vx += (rx / r) * a;
+                        b.vy += (ry / r) * a;
+                    }
+                }
+            }
+
+            // Pairwise gravity with merging on contact
             const n = bodies.length;
-            
-            let heaviest = null;
-            let maxBodyMass = 0;
-            let sysMass = 0;
-            let cmX = 0, cmY = 0;
-            
-            for (let b of bodies) {
-                if (b.dead) continue;
-                if (b.mass > maxBodyMass) {
-                    maxBodyMass = b.mass;
-                    heaviest = b;
-                }
-            }
-
-            if (heaviest) {
-                for (let b of bodies) {
-                    if (b.dead) continue;
-                    let dx = b.x - heaviest.x;
-                    let dy = b.y - heaviest.y;
-                    if (dx*dx + dy*dy < Math.pow(Config.CLOUD_RADIUS * 10, 2)) {
-                        cmX += b.x * b.mass;
-                        cmY += b.y * b.mass;
-                        sysMass += b.mass;
-                    }
-                }
-                if (sysMass > 0) { cmX /= sysMass; cmY /= sysMass; }
-            }
-
-            const dragLoss = 1.0 - Config.FRICTION;
-            const dragStrength = dragLoss * 20.0 * Config.DT;
-
+            const G = Config.G, soft = Config.SOFTENING;
+            const core = hasCore ? heaviest : null;
+            const capture = core ? core.radius * Config.CORE_CAPTURE : 0;
             for (let i = 0; i < n; i++) {
-                const b1 = bodies[i];
-                if (b1.dead) continue;
-
-                // --- PERFECT DECOUPLING ---
-                // Planets (mass >= MASS_PLANET) are strictly N-Body purely driven by gravity.
-                // Gas & Dust feel friction, spiraling into the star.
-                if (b1.mass < Config.MASS_PLANET && dragStrength > 0) {
-                    const rx = b1.x - cmX;
-                    const ry = b1.y - cmY;
-                    const rSq = rx*rx + ry*ry;
-                    
-                    if (rSq > 10) {
-                        const r = Math.sqrt(rSq);
-                        const lz = rx * b1.vy - ry * b1.vx;
-                        const dir = lz >= 0 ? 1 : -1;
-                        
-                        const tx = (-ry / r) * dir;
-                        const ty = (rx / r) * dir;
-                        
-                        const radiusRatio = Math.min(1.0, r / Config.CLOUD_RADIUS);
-                        const enclosedMass = maxBodyMass + (sysMass - maxBodyMass) * Math.pow(radiusRatio, 1.2);
-                        const massRatio = Math.min(1.0, Config.BASE_MASS / b1.mass);
-                        
-                        // Gas wants to fall inwards (sub-orbital speed).
-                        const orbitSpeedMult = 1.0 - (0.15 * massRatio);
-                        const vIdealMag = Math.sqrt((Config.G * enclosedMass) / (r + 10)) * orbitSpeedMult;
-                        
-                        const effectiveDrag = dragStrength * massRatio;
-                        
-                        b1.vx += ((tx * vIdealMag) - b1.vx) * effectiveDrag;
-                        b1.vy += ((ty * vIdealMag) - b1.vy) * effectiveDrag;
-                    }
-                }
-
-                // --- Symplectic N-Body Gravity ---
+                const a = bodies[i];
+                if (a.dead) continue;
                 for (let j = i + 1; j < n; j++) {
-                    const b2 = bodies[j];
-                    if (b2.dead) continue;
-
-                    const dx = b2.x - b1.x;
-                    const dy = b2.y - b1.y;
-                    const distSq = dx*dx + dy*dy;
-                    const dist = Math.max(0.1, Math.sqrt(distSq));
-
-                    if (dist < b1.radius + b2.radius) {
-                        if (b1.mass > b2.mass) {
-                            b1.merge(b2);
-                            continue; 
-                        } else {
-                            b2.merge(b1);
-                            break; 
+                    const b = bodies[j];
+                    if (b.dead) continue;
+                    const dx = b.x - a.x, dy = b.y - a.y;
+                    const dSq = dx * dx + dy * dy;
+                    let rr = a.radius + b.radius;
+                    if ((a === core && b.mass < Config.MASS_ASTEROID) || (b === core && a.mass < Config.MASS_ASTEROID)) rr = capture;
+                    else if (a.mass < Config.MASS_ASTEROID && b.mass < Config.MASS_ASTEROID) rr *= Config.GAS_STICK;
+                    if (dSq < rr * rr) {
+                        if (a.mass >= b.mass) {
+                            a.merge(b);
+                            continue;
                         }
+                        b.merge(a);
+                        break;
                     }
-
-                    const force = (Config.G * b1.mass * b2.mass) / (distSq + Config.SOFTENING);
-                    const fx = (force * dx) / dist;
-                    const fy = (force * dy) / dist;
-
-                    b1.vx += (fx / b1.mass) * Config.DT;
-                    b1.vy += (fy / b1.mass) * Config.DT;
-                    b2.vx -= (fx / b2.mass) * Config.DT;
-                    b2.vy -= (fy / b2.mass) * Config.DT; 
+                    const f = (G * dt) / ((dSq + soft) * Math.sqrt(dSq + 1e-6));
+                    a.vx += dx * f * b.mass;
+                    a.vy += dy * f * b.mass;
+                    b.vx -= dx * f * a.mass;
+                    b.vy -= dy * f * a.mass;
                 }
             }
 
-            let maxMass = 0;
-            for (let i = bodies.length - 1; i >= 0; i--) {
-                const b = bodies[i];
-                if (b.dead) {
-                    bodies.splice(i, 1);
-                } else {
-                    const distFromCenterSq = (b.x - cmX)*(b.x - cmX) + (b.y - cmY)*(b.y - cmY);
-                    if (distFromCenterSq > Math.pow(Config.CLOUD_RADIUS * 20, 2)) {
-                        bodies.splice(i, 1);
-                        continue;
-                    }
-
-                    if (!isFinite(b.vx)) b.vx = 0;
-                    if (!isFinite(b.vy)) b.vy = 0;
-
-                    if (b.vx > 20000) b.vx = 20000;
-                    if (b.vx < -20000) b.vx = -20000;
-                    if (b.vy > 20000) b.vy = 20000;
-                    if (b.vy < -20000) b.vy = -20000;
-
-                    b.x += b.vx * Config.DT;
-                    b.y += b.vy * Config.DT;
-                    
-                    if (!isFinite(b.x)) b.x = 0;
-                    if (!isFinite(b.y)) b.y = 0;
-
-                    if (b.mass > maxMass) maxMass = b.mass;
+            // Move, drop merged or escaped bodies, record trails
+            const escapeSq = Math.pow(Config.CLOUD_RADIUS * 25, 2);
+            const recordTrail = stepCount % 3 === 0;
+            let w = 0;
+            for (const b of bodies) {
+                if (b.dead) continue;
+                if (!isFinite(b.vx) || !isFinite(b.vy)) { b.vx = 0; b.vy = 0; }
+                b.x += b.vx * dt;
+                b.y += b.vy * dt;
+                const ex = b.x - anchor.x, ey = b.y - anchor.y;
+                if (ex * ex + ey * ey > escapeSq || !isFinite(b.x) || !isFinite(b.y)) {
+                    if (b === star) star = null;
+                    continue;
                 }
-            }
-
-            for (let i = shockwaves.length - 1; i >= 0; i--) {
-                let sw = shockwaves[i];
-                const expansionSpeed = 1500; 
-                
-                sw.radius += expansionSpeed * Config.DT;
-                sw.energy -= 0.3 * Config.DT; 
-
-                for (let p of sw.ejecta) {
-                    p.dist += p.speed * Config.DT;
-                    p.life -= 0.4 * Config.DT;
+                if (recordTrail && b.mass >= Config.MASS_ASTEROID && b !== star) {
+                    b.trail.push(b.x, b.y);
+                    if (b.trail.length > 160) b.trail.splice(0, 2);
                 }
-
-                if (sw.energy > 0) {
-                    for (let b of bodies) {
-                        if (b.dead || b.mass >= Config.MASS_ASTEROID) continue;
-                        
-                        const dx = b.x - sw.x;
-                        const dy = b.y - sw.y;
-                        const distSq = dx*dx + dy*dy;
-                        const dist = Math.max(0.1, Math.sqrt(distSq)); 
-
-                        if (Math.abs(dist - sw.radius) < expansionSpeed * Config.DT * 2.0 || dist < sw.radius) {
-                            const force = (sw.energy * 1200); 
-                            b.vx += (dx / dist) * force;
-                            b.vy += (dy / dist) * force;
-                        }
-                    }
-                } else {
-                    shockwaves.splice(i, 1); 
-                }
+                bodies[w++] = b;
             }
-            
-            if (cameraShake > 0) {
-                cameraShake -= 15 * Config.DT;
-                if (cameraShake < 0) cameraShake = 0;
-            }
+            bodies.length = w;
+            heaviest = null;
+            for (const b of bodies) if (!heaviest || b.mass > heaviest.mass) heaviest = b;
+            coreBody = star || (heaviest && heaviest.mass >= Config.PROTOSTAR_FRACTION * totalMass ? heaviest : null);
 
-            simulationTime += Config.DT;
-            updateUIStats(maxMass);
+            // Ignition: the core has gathered enough of the system's mass
+            if (!star && heaviest && !heaviest.dead &&
+                heaviest.mass >= Math.max(Config.MIN_STAR_MASS, Config.STAR_FRACTION * totalMass)) {
+                ignite(heaviest);
+            }
         }
 
-        function draw() {
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, width, height);
+        function ignite(b) {
+            star = b;
+            ignitionStep = stepCount;
+            b.trail = [];
+            b.updateProperties();
 
-            let heaviest = null;
-            let maxM = 0;
-            let maxDistSq = Config.CLOUD_RADIUS * Config.CLOUD_RADIUS * 0.25; 
+            const col = starColor(b.mass);
+            effects.push({
+                kind: 'ring', x: b.x, y: b.y, age: 0, life: 4,
+                speed: Config.CLOUD_RADIUS * 0.8, color: col
+            });
+            for (let i = 0; i < 70; i++) {
+                const a = Math.random() * Math.PI * 2;
+                effects.push({
+                    kind: 'spark', x: b.x, y: b.y, age: 0, life: 1.5 + Math.random() * 1.5,
+                    vx: Math.cos(a), vy: Math.sin(a), speed: 60 + Math.random() * 260,
+                    size: 1 + Math.random() * 2.5
+                });
+            }
+            cam.flash = 1;
+            cam.shake = 10;
+            showToast('A star is born');
+        }
 
-            for (let b of bodies) {
-                if (!b.dead && b.mass > maxM) {
-                    maxM = b.mass;
-                    heaviest = b;
+        let toastTimer = 0;
+        function showToast(text) {
+            ui.toast.textContent = text;
+            ui.toast.classList.add('show');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => ui.toast.classList.remove('show'), 3500);
+        }
+
+        // ------------------------------------------------------------------
+        // Camera
+        // ------------------------------------------------------------------
+        function targetScale() {
+            return Math.max(0.05, Math.min(3, (Math.min(width, height) * 0.42) / cam.fitExtent)) * cam.zoom;
+        }
+
+        function updateCamera(rdt, frame) {
+            const focus = coreBody || anchor;
+            if (focus) {
+                const k = 1 - Math.exp(-rdt * 1.2);
+                cam.x += (focus.x - cam.x) * k;
+                cam.y += (focus.y - cam.y) * k;
+            }
+
+            // Frame most of the cloud; once the star has lit, frame its planets instead (gas blown
+            // away by the wind and stray asteroids are ignored). Recomputed a few times a second.
+            if (frame % 15 === 0 && bodies.length) {
+                let p;
+                if (star) {
+                    p = Config.CLOUD_RADIUS * 0.4;
+                    for (const b of bodies) {
+                        if (b === star || b.mass < Config.MASS_PLANET) continue;
+                        const dist = Math.hypot(b.x - cam.x, b.y - cam.y);
+                        if (dist < Config.CLOUD_RADIUS * 6) p = Math.max(p, dist * 1.1);
+                    }
+                } else {
+                    const d = [];
+                    for (const b of bodies) d.push(Math.hypot(b.x - cam.x, b.y - cam.y));
+                    d.sort((a, b) => a - b);
+                    p = d[Math.floor(d.length * 0.9)] || Config.CLOUD_RADIUS;
                 }
+                cam.fitExtent = Math.max(Config.CLOUD_RADIUS * 0.35, Math.min(Config.CLOUD_RADIUS * 12, p));
+            }
+            const target = targetScale();
+            cam.scale *= Math.exp((Math.log(target) - Math.log(cam.scale)) * (1 - Math.exp(-rdt * 0.8)));
+
+            cam.shake = Math.max(0, cam.shake - rdt * 10);
+            cam.flash = Math.max(0, cam.flash - rdt * 0.8);
+        }
+
+        function screenToWorld(sx, sy) {
+            return {
+                x: (sx - width / 2) / cam.scale + cam.x,
+                y: (sy - height / 2) / cam.scale + cam.y
+            };
+        }
+
+        // ------------------------------------------------------------------
+        // Rendering
+        // ------------------------------------------------------------------
+        let bgCanvas = null;
+
+        function buildBackground() {
+            bgCanvas = document.createElement('canvas');
+            bgCanvas.width = canvas.width;
+            bgCanvas.height = canvas.height;
+            const g = bgCanvas.getContext('2d');
+            const W = bgCanvas.width, H = bgCanvas.height;
+            g.fillStyle = '#02030a';
+            g.fillRect(0, 0, W, H);
+
+            // Faint distant nebulae
+            const tints = [[70, 40, 120], [30, 60, 130], [110, 40, 80], [20, 80, 110]];
+            for (let i = 0; i < 7; i++) {
+                const x = Math.random() * W, y = Math.random() * H, r = (0.25 + Math.random() * 0.45) * Math.max(W, H);
+                const [cr, cg, cb] = tints[i % tints.length];
+                const grad = g.createRadialGradient(x, y, 0, x, y, r);
+                grad.addColorStop(0, `rgba(${cr},${cg},${cb},0.14)`);
+                grad.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+                g.fillStyle = grad;
+                g.fillRect(0, 0, W, H);
             }
 
-            if (heaviest) {
-                cameraX += (heaviest.x - cameraX) * 0.002;
-                cameraY += (heaviest.y - cameraY) * 0.002;
+            // Background stars
+            const count = Math.round((W * H) / 900);
+            for (let i = 0; i < count; i++) {
+                const x = Math.random() * W, y = Math.random() * H;
+                const s = Math.pow(Math.random(), 3) * 1.6 * dpr + 0.3 * dpr;
+                const hue = Math.random();
+                const col = hue < 0.15 ? '255,210,170' : hue < 0.35 ? '190,210,255' : '255,255,255';
+                g.fillStyle = `rgba(${col},${0.25 + Math.random() * 0.6})`;
+                g.beginPath();
+                g.arc(x, y, s, 0, Math.PI * 2);
+                g.fill();
+            }
+            // A few brighter ones with a soft halo
+            for (let i = 0; i < 25; i++) {
+                const x = Math.random() * W, y = Math.random() * H, s = (6 + Math.random() * 10) * dpr;
+                g.globalAlpha = 0.5;
+                g.drawImage(glowSprite([220, 230, 255], 'sharp'), x - s, y - s, s * 2, s * 2);
+                g.globalAlpha = 1;
+            }
+        }
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            dpr = Math.min(window.devicePixelRatio || 1, 2);
+            canvas.width = Math.round(width * dpr);
+            canvas.height = Math.round(height * dpr);
+            buildBackground();
+        }
+
+        // Light and shadow on a body lit from (lx, ly)
+        function shade(x, y, r, lx, ly, strength) {
+            const x0 = x + lx * r, y0 = y + ly * r, x1 = x - lx * r, y1 = y - ly * r;
+            const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+            grad.addColorStop(0, `rgba(255,255,255,${0.22 * strength})`);
+            grad.addColorStop(0.35, 'rgba(0,0,0,0)');
+            grad.addColorStop(0.6, `rgba(0,0,0,${0.35 + 0.35 * strength})`);
+            grad.addColorStop(1, `rgba(0,0,0,${0.55 + 0.35 * strength})`);
+            ctx.fillStyle = grad;
+            ctx.fillRect(x - r, y - r, r * 2, r * 2);
+        }
+
+        function drawSolidBody(b, r, light) {
+            let lx = 0, ly = -1, strength = 0.25;
+            if (light) {
+                const dx = light.x - b.x, dy = light.y - b.y;
+                const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                lx = dx / d;
+                ly = dy / d;
+                strength = light.strength;
             }
 
-            for (let b of bodies) {
-                if (b.dead) continue;
-                let dx = b.x - cameraX;
-                let dy = b.y - cameraY;
-                let distSq = dx*dx + dy*dy;
-                
-                if (b.mass >= Config.MASS_ASTEROID && distSq > maxDistSq && distSq < Math.pow(Config.CLOUD_RADIUS * 15, 2)) {
-                    maxDistSq = distSq;
-                }
+            // Tiny bodies: a dot is enough
+            if (r * cam.scale < 1.5) {
+                ctx.fillStyle = b.type === 'gas_giant' ? b.palette[0] : b.type === 'planet' ? b.rocky : '#9ca3af';
+                const s = 1.5 / cam.scale;
+                ctx.fillRect(b.x - s / 2, b.y - s / 2, s, s);
+                return;
             }
-
-            let maxDist = Math.sqrt(maxDistSq);
-            let minScreenDim = Math.min(width, height);
-            let targetScale = (minScreenDim * 0.40) / maxDist;
-            
-            if (targetScale < 0.05) targetScale = 0.05; 
-            if (targetScale > 2.0) targetScale = 2.0; 
-            
-            cameraScale += (targetScale - cameraScale) * 0.005; 
 
             ctx.save();
-            ctx.translate(width / 2, height / 2); 
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+            ctx.clip();
 
-            if (cameraShake > 0) {
-                ctx.translate((Math.random() - 0.5) * cameraShake * 2, (Math.random() - 0.5) * cameraShake * 2);
+            if (b.type === 'gas_giant') {
+                ctx.fillStyle = b.palette[0];
+                ctx.fillRect(b.x - r, b.y - r, r * 2, r * 2);
+                ctx.translate(b.x, b.y);
+                ctx.rotate(b.tilt);
+                const bands = 7;
+                for (let k = 0; k < bands; k++) {
+                    const h = (2 * r) / bands;
+                    const wobble = 0.55 + 0.45 * Math.sin(k * 1.7 + b.bandSeed);
+                    ctx.fillStyle = b.palette[1 + (k % 2)];
+                    ctx.globalAlpha = 0.75;
+                    ctx.fillRect(-r, -r + k * h, r * 2, h * wobble);
+                }
+                ctx.globalAlpha = 1;
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                applyWorldTransform();
+            } else {
+                ctx.fillStyle = b.type === 'planet' ? b.rocky : '#8b8f96';
+                ctx.fillRect(b.x - r, b.y - r, r * 2, r * 2);
+            }
+            shade(b.x, b.y, r, lx, ly, strength);
+            ctx.restore();
+        }
+
+        let shakeX = 0, shakeY = 0;
+        function applyWorldTransform() {
+            const s = cam.scale * dpr;
+            ctx.setTransform(s, 0, 0, s,
+                canvas.width / 2 - cam.x * s + shakeX * dpr,
+                canvas.height / 2 - cam.y * s + shakeY * dpr);
+        }
+
+        function render(time) {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+            ctx.drawImage(bgCanvas, 0, 0);
+
+            shakeX = (Math.random() - 0.5) * cam.shake * 2;
+            shakeY = (Math.random() - 0.5) * cam.shake * 2;
+            applyWorldTransform();
+
+            const margin = 60 / cam.scale;
+            const halfW = width / 2 / cam.scale + margin, halfH = height / 2 / cam.scale + margin;
+            const inView = (x, y, pad) =>
+                x > cam.x - halfW - pad && x < cam.x + halfW + pad && y > cam.y - halfH - pad && y < cam.y + halfH + pad;
+
+            const core = coreBody;
+            const cx = core ? core.x : anchor.x, cy = core ? core.y : anchor.y;
+            const R = Config.CLOUD_RADIUS;
+
+            // Nebula: overlapping soft sprites, coloured hot to cold by distance from the core
+            ctx.globalCompositeOperation = 'lighter';
+            const gasAlpha = star ? 0.1 : 0.1;
+            for (const b of bodies) {
+                if (b.mass >= Config.MASS_ASTEROID) continue;
+                const size = 16 + b.mass * 6;
+                if (!inView(b.x, b.y, size)) continue;
+                const dx = b.x - cx, dy = b.y - cy;
+                const t = Math.sqrt(dx * dx + dy * dy) / (R * 1.1);
+                ctx.globalAlpha = gasAlpha;
+                ctx.drawImage(GAS_SPRITES[Math.min(15, Math.floor(t * 15))], b.x - size, b.y - size, size * 2, size * 2);
+            }
+            // Dust grains: tiny sparkles
+            ctx.globalAlpha = 0.55;
+            ctx.fillStyle = '#dbeafe';
+            const px = 1.1 / cam.scale;
+            for (const b of bodies) {
+                if (b.mass >= Config.MASS_ASTEROID || !inView(b.x, b.y, 0)) continue;
+                ctx.fillRect(b.x - px / 2, b.y - px / 2, px, px);
             }
 
-            ctx.scale(cameraScale, cameraScale); 
-            ctx.translate(-cameraX, -cameraY); 
-
-            const viewMargin = 100 / cameraScale;
-            const viewLeft = cameraX - (width / 2) / cameraScale - viewMargin;
-            const viewRight = cameraX + (width / 2) / cameraScale + viewMargin;
-            const viewTop = cameraY - (height / 2) / cameraScale - viewMargin;
-            const viewBottom = cameraY + (height / 2) / cameraScale + viewMargin;
-
-            for (let b of bodies) {
-                b.draw(ctx, viewLeft, viewRight, viewTop, viewBottom);
-            }
-
-            for (let sw of shockwaves) {
-                if (sw.energy <= 0) continue;
-                if (!isFinite(sw.x) || !isFinite(sw.y)) continue;
-
-                ctx.save();
-                ctx.globalCompositeOperation = "screen";
-
-                for (let ray of sw.rays) {
-                    const rayLen = Math.max(0.1, sw.radius * ray.lengthMultiplier * 1.5);
-                    const rayGrad = ctx.createLinearGradient(
-                        sw.x, sw.y, 
-                        sw.x + Math.cos(ray.angle) * rayLen, 
-                        sw.y + Math.sin(ray.angle) * rayLen
-                    );
-                    rayGrad.addColorStop(0, `rgba(255, 255, 255, ${sw.energy * 0.8})`);
-                    rayGrad.addColorStop(1, 'rgba(255, 230, 150, 0)');
-                    
-                    ctx.beginPath();
-                    ctx.moveTo(sw.x, sw.y);
-                    ctx.lineTo(sw.x + Math.cos(ray.angle) * rayLen, sw.y + Math.sin(ray.angle) * rayLen);
-                    ctx.strokeStyle = rayGrad;
-                    ctx.lineWidth = Math.max(1 / cameraScale, ray.width * sw.energy); 
-                    ctx.stroke();
-                }
-
-                for (let p of sw.ejecta) {
-                    if (p.life <= 0) continue;
-                    const px = sw.x + Math.cos(p.angle) * p.dist;
-                    const py = sw.y + Math.sin(p.angle) * p.dist;
-                    
-                    ctx.beginPath();
-                    ctx.arc(px, py, Math.max(0.1, p.size * p.life), 0, Math.PI * 2);
-                    ctx.fillStyle = `rgba(255, ${Math.floor(200 * p.life)}, ${Math.floor(100 * p.life)}, ${p.life})`;
-                    ctx.fill();
-                    
-                    ctx.beginPath();
-                    ctx.moveTo(px, py);
-                    ctx.lineTo(px - Math.cos(p.angle) * p.dist * 0.1, py - Math.sin(p.angle) * p.dist * 0.1);
-                    ctx.strokeStyle = `rgba(255, 150, 50, ${p.life * 0.5})`;
-                    ctx.lineWidth = Math.max(0.1 / cameraScale, p.size);
-                    ctx.stroke();
-                }
-
+            // Orbit trails
+            ctx.lineWidth = 1 / cam.scale;
+            ctx.lineJoin = 'round';
+            for (const b of bodies) {
+                if (b.trail.length < 6) continue;
+                ctx.strokeStyle = b.type === 'gas_giant' ? b.palette[0] : b.type === 'planet' ? b.rocky : '#6b7280';
+                ctx.globalAlpha = b.type === 'asteroid' ? 0.12 : 0.28;
                 ctx.beginPath();
-                ctx.arc(sw.x, sw.y, Math.max(0.1, sw.radius), 0, Math.PI * 2);
-                ctx.strokeStyle = `rgba(200, 230, 255, ${sw.energy * 0.8})`;
-                ctx.lineWidth = Math.max(1 / cameraScale, sw.energy * 8);
+                ctx.moveTo(b.trail[0], b.trail[1]);
+                for (let i = 2; i < b.trail.length; i += 2) ctx.lineTo(b.trail[i], b.trail[i + 1]);
+                ctx.lineTo(b.x, b.y);
                 ctx.stroke();
+            }
 
-                if (sw.radius > 50) {
-                    ctx.beginPath();
-                    ctx.arc(sw.x, sw.y, Math.max(0.1, sw.radius * 0.85), 0, Math.PI * 2);
-                    ctx.strokeStyle = `rgba(255, 200, 100, ${sw.energy * 0.5})`;
-                    ctx.lineWidth = Math.max(1 / cameraScale, sw.energy * 4);
-                    ctx.stroke();
-                }
+            // Glow of the protostar or star, drawn under the solid bodies
+            let light = null;
+            if (star) {
+                const col = starColor(star.mass);
+                const pulse = 1 + 0.03 * Math.sin(time * 2.3);
+                const r = star.radius * 1.4 * pulse;
+                ctx.globalAlpha = 0.5;
+                ctx.drawImage(glowSprite(col, 'sharp'), star.x - r * 22, star.y - r * 22, r * 44, r * 44);
+                ctx.globalAlpha = 0.9;
+                ctx.drawImage(glowSprite(col), star.x - r * 5, star.y - r * 5, r * 10, r * 10);
+                light = { x: star.x, y: star.y, strength: 1 };
+            } else if (core) {
+                const flicker = 0.85 + 0.15 * Math.sin(time * 7) * Math.sin(time * 3.1);
+                const frac = Math.min(1, core.mass / (Config.STAR_FRACTION * totalMass));
+                const r = core.radius * (1.5 + frac);
+                ctx.globalAlpha = (0.35 + 0.45 * frac) * flicker;
+                ctx.drawImage(glowSprite([255, 70 + 90 * frac | 0, 40]), core.x - r * 6, core.y - r * 6, r * 12, r * 12);
+                light = { x: core.x, y: core.y, strength: 0.3 + 0.4 * frac };
+            }
 
-                const bloomRadius = Math.max(0.1, sw.radius * 0.6);
-                const grad = ctx.createRadialGradient(sw.x, sw.y, 0, sw.x, sw.y, bloomRadius);
-                grad.addColorStop(0, `rgba(255, 255, 255, ${sw.energy})`);
-                grad.addColorStop(0.2, `rgba(255, 250, 200, ${sw.energy * 0.8})`);
-                grad.addColorStop(1, 'rgba(255, 200, 100, 0)');
+            // Solid bodies
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+            for (const b of bodies) {
+                if (b.mass < Config.MASS_ASTEROID || b === star || b === core) continue;
+                const r = Math.max(b.radius, 0.8 / cam.scale);
+                if (!inView(b.x, b.y, r)) continue;
+                drawSolidBody(b, r, light);
+            }
+
+            // Protostar or star core
+            if (star) {
+                const col = starColor(star.mass);
+                const r = star.radius * 1.4 * (1 + 0.03 * Math.sin(time * 2.3));
+                const grad = ctx.createRadialGradient(star.x, star.y, 0, star.x, star.y, r);
+                grad.addColorStop(0, '#ffffff');
+                grad.addColorStop(0.6, `rgb(${col.join(',')})`);
+                grad.addColorStop(1, `rgba(${col.join(',')},0.6)`);
                 ctx.fillStyle = grad;
                 ctx.beginPath();
-                ctx.arc(sw.x, sw.y, bloomRadius, 0, Math.PI * 2);
+                ctx.arc(star.x, star.y, r, 0, Math.PI * 2);
                 ctx.fill();
 
-                ctx.restore();
+                // Diffraction spikes
+                ctx.globalCompositeOperation = 'lighter';
+                const len = Math.min(r * 14, 120 / cam.scale);
+                for (let k = 0; k < 4; k++) {
+                    const a = k * Math.PI / 2 + time * 0.02 + Math.PI / 4;
+                    const ex = Math.cos(a) * len, ey = Math.sin(a) * len;
+                    const g = ctx.createLinearGradient(star.x, star.y, star.x + ex, star.y + ey);
+                    g.addColorStop(0, `rgba(${col.join(',')},0.45)`);
+                    g.addColorStop(1, `rgba(${col.join(',')},0)`);
+                    ctx.strokeStyle = g;
+                    ctx.lineWidth = Math.max(r * 0.12, 1 / cam.scale);
+                    ctx.beginPath();
+                    ctx.moveTo(star.x, star.y);
+                    ctx.lineTo(star.x + ex, star.y + ey);
+                    ctx.stroke();
+                }
+                ctx.globalCompositeOperation = 'source-over';
+            } else if (core) {
+                const frac = Math.min(1, core.mass / (Config.STAR_FRACTION * totalMass));
+                const r = Math.max(core.radius, 1.5 / cam.scale);
+                const grad = ctx.createRadialGradient(core.x, core.y, 0, core.x, core.y, r);
+                grad.addColorStop(0, `rgb(255,${140 + 90 * frac | 0},${80 + 60 * frac | 0})`);
+                grad.addColorStop(1, 'rgb(150,30,20)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(core.x, core.y, r, 0, Math.PI * 2);
+                ctx.fill();
             }
 
-            ctx.restore(); 
-        }
+            drawEffects();
+            drawAim();
 
-        function loop() {
-            try {
-                updatePhysics();
-                draw();
-            } catch (e) {
-                console.error("Simulation Error Caught:", e);
+            // Ignition flash (screen space)
+            if (cam.flash > 0) {
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.globalAlpha = cam.flash * cam.flash * 0.8;
+                ctx.fillStyle = '#fff4d6';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
             }
-            animationFrameId = requestAnimationFrame(loop);
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
         }
 
-        function updateUIStats(maxMass) {
-            if (Math.floor(simulationTime) % 5 === 0) {
-                uiBodies.innerText = bodies.length;
-                uiTime.innerText = Math.floor(simulationTime * 100).toLocaleString(); 
-                uiMass.innerText = Math.floor(maxMass);
+        function drawEffects() {
+            ctx.globalCompositeOperation = 'lighter';
+            for (const e of effects) {
+                const k = 1 - e.age / e.life;
+                if (e.kind === 'ring') {
+                    const r = e.speed * e.age;
+                    const g = ctx.createRadialGradient(e.x, e.y, r * 0.8, e.x, e.y, r);
+                    g.addColorStop(0, 'rgba(0,0,0,0)');
+                    g.addColorStop(0.85, `rgba(${e.color.join(',')},${0.35 * k})`);
+                    g.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.globalAlpha = 1;
+                    ctx.fillStyle = g;
+                    ctx.beginPath();
+                    ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    const d = e.speed * e.age;
+                    const x = e.x + e.vx * d, y = e.y + e.vy * d;
+                    ctx.globalAlpha = k;
+                    ctx.strokeStyle = `rgb(255,${150 + 80 * k | 0},${60 + 80 * k | 0})`;
+                    ctx.lineWidth = e.size * k;
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x - e.vx * d * 0.12, y - e.vy * d * 0.12);
+                    ctx.stroke();
+                }
             }
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
         }
 
-        document.getElementById('btnPause').addEventListener('click', (e) => {
+        function drawAim() {
+            if (!aim || !aim.dragging) return;
+            const s = aim.start, e = aim.end;
+            ctx.strokeStyle = 'rgba(147,197,253,0.8)';
+            ctx.lineWidth = 1.5 / cam.scale;
+            ctx.setLineDash([6 / cam.scale, 5 / cam.scale]);
+            ctx.beginPath();
+            ctx.moveTo(s.x, s.y);
+            ctx.lineTo(e.x, e.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            const a = Math.atan2(e.y - s.y, e.x - s.x), h = 10 / cam.scale;
+            ctx.beginPath();
+            ctx.moveTo(e.x, e.y);
+            ctx.lineTo(e.x - Math.cos(a - 0.4) * h, e.y - Math.sin(a - 0.4) * h);
+            ctx.moveTo(e.x, e.y);
+            ctx.lineTo(e.x - Math.cos(a + 0.4) * h, e.y - Math.sin(a + 0.4) * h);
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(147,197,253,0.5)';
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, Math.max(3, 4 / cam.scale), 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function updateEffects(rdt) {
+            for (const e of effects) e.age += rdt;
+            effects = effects.filter((e) => e.age < e.life);
+        }
+
+        // ------------------------------------------------------------------
+        // Stats
+        // ------------------------------------------------------------------
+        let lastStats = 0;
+        function updateStats(now) {
+            if (now - lastStats < 250) return;
+            lastStats = now;
+            let planets = 0, gasMass = 0;
+            for (const b of bodies) {
+                if (b.mass >= Config.MASS_PLANET && b !== star) planets++;
+                if (b.mass < Config.MASS_ASTEROID && Math.hypot(b.x - anchor.x, b.y - anchor.y) < Config.CLOUD_RADIUS * 2) gasMass += b.mass;
+            }
+            ui.bodies.textContent = bodies.length;
+            ui.time.textContent = (stepCount * Config.MYR_PER_STEP).toFixed(2);
+            ui.mass.textContent = heaviest ? Math.floor(heaviest.mass) : 0;
+            ui.planets.textContent = planets;
+
+            const share = heaviest && totalMass ? heaviest.mass / totalMass : 0;
+            ui.starPct.textContent = Math.round(share * 100) + '%' + (star ? '' : ` / ${Math.round(Config.STAR_FRACTION * 100)}%`);
+            ui.starBar.style.width = Math.min(100, (share / (star ? 1 : Config.STAR_FRACTION)) * 100) + '%';
+            ui.starBar.classList.toggle('lit', !!star);
+
+            let phase;
+            if (star) phase = gasMass > totalMass * 0.06 ? '☀ Star ignited: wind clearing the disk' : '☀ Planetary system';
+            else if (coreBody) phase = '● Protostar accreting';
+            else phase = '○ Collapsing cloud';
+            ui.phase.textContent = phase;
+        }
+
+        // ------------------------------------------------------------------
+        // Main loop: fixed physics steps, independent of the display's refresh rate
+        // ------------------------------------------------------------------
+        let lastTime = performance.now(), stepAcc = 0, frame = 0;
+        function loop(now) {
+            const rdt = Math.min((now - lastTime) / 1000, 0.1);
+            lastTime = now;
+            frame++;
+
+            if (!isPaused) {
+                stepAcc += rdt * 60 * Config.SPEED;
+                let n = Math.floor(stepAcc);
+                if (n > 12) { n = 12; stepAcc = 0; } else stepAcc -= n;
+                // Stay within a frame's budget; slow machines run slower rather than stutter
+                const budgetEnd = performance.now() + 14;
+                for (let i = 0; i < n; i++) {
+                    step();
+                    if (performance.now() > budgetEnd) { stepAcc = 0; break; }
+                }
+                updateEffects(rdt);
+            }
+
+            updateCamera(rdt, frame);
+            render(now / 1000);
+            updateStats(now);
+            requestAnimationFrame(loop);
+        }
+
+        // ------------------------------------------------------------------
+        // Controls
+        // ------------------------------------------------------------------
+        function togglePause() {
             isPaused = !isPaused;
-            e.target.innerText = isPaused ? "Resume" : "Pause";
-            e.target.classList.toggle('bg-blue-600');
-            e.target.classList.toggle('bg-yellow-600');
+            const btn = document.getElementById('btnPause');
+            btn.textContent = isPaused ? 'Resume' : 'Pause';
+            btn.classList.toggle('btn-blue', !isPaused);
+            btn.classList.toggle('btn-yellow', isPaused);
+        }
+
+        document.getElementById('btnPause').addEventListener('click', togglePause);
+        document.getElementById('btnReset').addEventListener('click', initSimulation);
+        document.getElementById('btnSpawnDisk').addEventListener('click', injectGasCloud);
+
+        const bindSlider = (id, valId, apply, fmt) => {
+            document.getElementById(id).addEventListener('input', (e) => {
+                const v = parseFloat(e.target.value);
+                apply(v);
+                document.getElementById(valId).textContent = fmt(v);
+            });
+        };
+        bindSlider('speedSlider', 'speedVal', (v) => { Config.SPEED = v; }, (v) => v + '×');
+        bindSlider('gSlider', 'gVal', (v) => { Config.G = v; }, (v) => v.toFixed(1));
+        bindSlider('spinSlider', 'spinVal', (v) => { Config.SPIN_MULTIPLIER = v; }, (v) => v.toFixed(2));
+        bindSlider('dragSlider', 'dragVal', (v) => { Config.DRAG = v; }, (v) => v.toFixed(1) + '×');
+
+        const panel = document.getElementById('panel');
+        const panelToggle = document.getElementById('panelToggle');
+        const setPanel = (open) => {
+            panel.classList.toggle('hidden', !open);
+            panelToggle.classList.toggle('show', !open);
+        };
+        document.getElementById('panelClose').addEventListener('click', () => setPanel(false));
+        panelToggle.addEventListener('click', () => setPanel(true));
+        if (window.innerWidth < 600) setPanel(false);
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && e.target === document.body) {
+                e.preventDefault();
+                togglePause();
+            }
         });
 
-        document.getElementById('btnReset').addEventListener('click', () => {
-            ctx.fillStyle = "#000";
-            ctx.fillRect(0, 0, width, height);
-            initSimulation();
+        // Click: drop a planet into a circular orbit. Drag: throw it in that direction.
+        const pointers = new Map();
+        let pinchDist = 0;
+
+        canvas.addEventListener('pointerdown', (e) => {
+            try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already-released pointer */ }
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (pointers.size === 1) {
+                const w = screenToWorld(e.clientX, e.clientY);
+                aim = { sx: e.clientX, sy: e.clientY, start: w, end: { ...w }, dragging: false };
+            } else if (pointers.size === 2) {
+                aim = null;
+                const [a, b] = [...pointers.values()];
+                pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+            }
         });
 
-        document.getElementById('btnSpawnDisk').addEventListener('click', () => {
-            injectGasCloud();
+        canvas.addEventListener('pointermove', (e) => {
+            const p = pointers.get(e.pointerId);
+            if (!p) return;
+            p.x = e.clientX;
+            p.y = e.clientY;
+            if (pointers.size === 2) {
+                const [a, b] = [...pointers.values()];
+                const d = Math.hypot(a.x - b.x, a.y - b.y);
+                if (pinchDist > 0) cam.zoom = Math.max(0.25, Math.min(6, cam.zoom * (d / pinchDist)));
+                pinchDist = d;
+            } else if (aim) {
+                aim.end = screenToWorld(e.clientX, e.clientY);
+                if (Math.hypot(e.clientX - aim.sx, e.clientY - aim.sy) > 8) aim.dragging = true;
+            }
         });
 
-        uiDt.addEventListener('input', (e) => {
-            Config.DT = parseFloat(e.target.value);
-            document.getElementById('dtVal').innerText = Config.DT.toFixed(2);
-        });
+        const endPointer = (e) => {
+            if (!pointers.has(e.pointerId)) return;
+            pointers.delete(e.pointerId);
+            if (e.type !== 'pointerup' || !aim || pointers.size > 0) {
+                if (pointers.size === 0) aim = null;
+                return;
+            }
+            const s = aim.start;
+            let vx = 0, vy = 0;
+            const centre = heaviest || anchor;
+            if (aim.dragging) {
+                vx = centre.vx + (aim.end.x - s.x) * 0.012;
+                vy = centre.vy + (aim.end.y - s.y) * 0.012;
+            } else if (heaviest) {
+                // Circular orbit around the core
+                const rx = s.x - centre.x, ry = s.y - centre.y;
+                const r = Math.sqrt(rx * rx + ry * ry) || 1;
+                const v = Math.sqrt((Config.G * centre.mass) / r);
+                vx = centre.vx - (ry / r) * v;
+                vy = centre.vy + (rx / r) * v;
+            }
+            bodies.push(new Body(s.x, s.y, vx, vy, Config.MASS_PLANET * 2));
+            aim = null;
+        };
+        canvas.addEventListener('pointerup', endPointer);
+        canvas.addEventListener('pointercancel', endPointer);
 
-        uiG.addEventListener('input', (e) => {
-            Config.G = parseFloat(e.target.value);
-            document.getElementById('gVal').innerText = Config.G.toFixed(1);
-        });
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+            cam.zoom = Math.max(0.25, Math.min(6, cam.zoom * Math.exp(-dy * 0.0012)));
+        }, { passive: false });
 
-        uiSpin.addEventListener('input', (e) => {
-            Config.SPIN_MULTIPLIER = parseFloat(e.target.value);
-            document.getElementById('spinVal').innerText = Config.SPIN_MULTIPLIER.toFixed(2);
-        });
-
-        uiFric.addEventListener('input', (e) => {
-            Config.FRICTION = parseFloat(e.target.value);
-            document.getElementById('fricVal').innerText = Config.FRICTION.toFixed(3);
-        });
-
-        canvas.addEventListener('mousedown', (e) => {
-            const worldX = (e.clientX - width / 2) / cameraScale + cameraX;
-            const worldY = (e.clientY - height / 2) / cameraScale + cameraY;
-
-            const rogue = new Body(worldX, worldY, 0, 0, Config.MASS_PLANET * 2);
-            bodies.push(rogue);
-        });
-
-        window.addEventListener('resize', () => {
-            resize();
-            ctx.fillStyle = "#000";
-            ctx.fillRect(0, 0, width, height);
-        });
+        window.addEventListener('resize', resize);
 
         resize();
         initSimulation();
-        ctx.fillStyle = "#000";
-        ctx.fillRect(0, 0, width, height);
-        loop();
-
+        requestAnimationFrame(loop);
     </script>
 </body>
 </html>
