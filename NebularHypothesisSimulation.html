@@ -131,6 +131,8 @@
         .c-green { color: #4ade80; }
         .c-yellow { color: #facc15; }
         .c-purple { color: #c084fc; }
+        .c-slate { color: #cbd5e1; }
+        .c-orange { color: #fb923c; }
 
         #phase {
             font-size: 13px;
@@ -309,6 +311,8 @@
                 <div>Time: <span id="statTime" class="mono c-green">0</span> Myr</div>
                 <div>Largest: <span id="statMass" class="mono c-yellow">0</span> M⊕</div>
                 <div>Planets: <span id="statPlanets" class="mono c-purple">0</span></div>
+                <div>Moons: <span id="statMoons" class="mono c-slate">0</span></div>
+                <div title="Glancing collisions that threw debris into orbit">Impacts: <span id="statImpacts" class="mono c-orange">0</span></div>
                 <div class="wide" id="phase">Collapsing cloud</div>
                 <div class="wide">
                     <div class="progress-label"><span>Core's share of the mass</span><span id="starPct">0%</span></div>
@@ -355,6 +359,7 @@
                 <li><span class="dot" style="background:#93c5fd;opacity:.6;box-shadow:0 0 6px rgba(147,197,253,.6)"></span> Nebula Gas / Dust</li>
                 <li><span class="dot" style="background:#9ca3af"></span> Asteroids / Protoplanets</li>
                 <li><span class="dot" style="background:#d9a066"></span> Gas Giants</li>
+                <li><span class="dot" style="background:#cbd5e1;width:8px;height:8px;margin:0 2px"></span> Moons (trail drawn around their planet)</li>
                 <li><span class="dot" style="background:#dc2626;box-shadow:0 0 8px rgba(239,68,68,.9)"></span> Protostar</li>
                 <li><span class="dot" style="background:#fef9c3;box-shadow:0 0 10px rgba(255,255,200,1)"></span> Ignited Star</li>
             </ul>
@@ -384,12 +389,20 @@
             ANCHOR_FRACTION: 0.2,    // Gas orbits the core once it holds this much, else the centre of mass
             ROT_PROFILE: 0.7,        // 1 = solid-body rotation, 0 = same fraction of orbital speed everywhere
             JITTER: 0.1,             // Random velocity as a fraction of the edge orbital speed
-            CORE_CAPTURE: 4,
+            CORE_CAPTURE: 4,         // The core sweeps up gas within this many of its radii
             SOLID_HIT: 0.5,          // Contact distance multiplier between planets (and the star)
+
+            // Moons: near a planet (inside part of its Hill sphere) its gravity beats the star's
+            HILL_FRACTION: 0.5,      // Solid bodies this deep in a planet's Hill sphere feel its disk's drag
+            MOON_ZONE: 0.4,          // Bound bodies inside this fraction of the Hill sphere become moons
+            MOON_ESCAPE: 0.6,        // ...and are only lost beyond this (the real stability limit is ~0.5)
+            IMPACT_MIN_MASS: 10,     // Smallest impactor that can blast debris into orbit
+            IMPACT_GLANCING: 0.35,   // How off-centre a hit must be (0 = head-on, 1 = grazing)
+            IMPACT_DEBRIS: 0.2,      // Fraction of the impactor thrown into orbit as moonlets
             GAS_STICK: 1.0,          // Contact distance multiplier when two gas particles meet
-            HEADWIND: 0.1,
+            HEADWIND: 0.1,           // How much slower than orbital speed the gas moves
             CIRCULARIZE: 0.004,      // How quickly the disk rounds off planets' orbits (per step)
-            PLANET_DRAG: 0.5,        // Extra drag factor for planets (makes them migrate inwards)          // How much slower than orbital speed the gas moves         // The core sweeps up gas within this many of its radii
+            PLANET_DRAG: 0.15,       // Extra drag factor for planets (makes them migrate inwards)
             DENSITY_POWER: 0.85,     // Higher = cloud more concentrated towards the middle
             STAR_FRACTION: 0.35,
             MIN_STAR_MASS: 400,
@@ -421,6 +434,8 @@
         let stepCount = 0;
         let ignitionStep = -1;
         let diskRefreshStep = 0;  // last time fresh gas was added
+        let impactCount = 0;      // giant impacts that threw debris into orbit
+        let moonAnnounced = false;
         let isPaused = false;
         let nextId = 1;
 
@@ -432,6 +447,8 @@
             time: document.getElementById('statTime'),
             mass: document.getElementById('statMass'),
             planets: document.getElementById('statPlanets'),
+            moons: document.getElementById('statMoons'),
+            impacts: document.getElementById('statImpacts'),
             phase: document.getElementById('phase'),
             starPct: document.getElementById('starPct'),
             starBar: document.getElementById('starBar'),
@@ -530,6 +547,10 @@
                 this.tilt = (Math.random() - 0.5) * 0.8;
                 this.bandSeed = Math.random() * 10;
                 this.trail = [];
+                this.trailHost = null;   // trails of moons are stored relative to their planet
+                this.host = null;        // planet whose Hill sphere this body is inside
+                this.moonOf = null;      // planet this body is gravitationally bound to
+                this.hill = 0;
                 this.updateProperties();
             }
 
@@ -556,6 +577,7 @@
                 if (other === star) star = this;
                 this.updateProperties();
                 other.dead = true;
+                other.mergedInto = this;
             }
         }
 
@@ -568,6 +590,8 @@
             stepCount = 0;
             ignitionStep = -1;
             diskRefreshStep = 0;
+            impactCount = 0;
+            moonAnnounced = false;
             cam.x = 0;
             cam.y = 0;
             cam.fitExtent = Config.CLOUD_RADIUS;
@@ -635,6 +659,175 @@
             return diskRefreshStep > ignitionStep && since < 0 ? 1 : Math.exp(-since / Config.DISK_DECAY_STEPS);
         }
 
+        // Near a planet its gravity beats the star's (its Hill sphere). A solid body captured deep
+        // inside it becomes a moon: from then on it follows a circular (tidally settled) orbit
+        // around its planet, travels with it, and moves to whatever the planet merges into.
+        function circularSpeed(mass, r) {
+            const s = Config.SOFTENING;
+            return Math.sqrt((Config.G * mass * r * r) / Math.pow(r * r + s, 1.5));
+        }
+
+        function lockMoon(b, h) {
+            const rx = b.x - h.x, ry = b.y - h.y;
+            const l = rx * (b.vy - h.vy) - ry * (b.vx - h.vx);
+            b.locked = true;
+            b.moonOf = h;
+            b.host = h;
+            b.orbitR = Math.max(1, Math.hypot(rx, ry));
+            b.orbitAng = Math.atan2(ry, rx);
+            b.orbitW = (l >= 0 ? 1 : -1) * circularSpeed(h.mass, b.orbitR) / b.orbitR;
+            b.trail = [];
+            b.trailHost = h;
+        }
+
+        function releaseMoon(b) {
+            b.locked = false;
+            b.moonOf = null;
+            b.host = null;
+        }
+
+        function assignHosts(core) {
+            const hosts = [];
+            for (const p of bodies) {
+                if (p === core || p.dead || p.locked || p.mass < Config.MASS_PLANET) continue;
+                p.hill = Math.hypot(p.x - core.x, p.y - core.y) * Math.cbrt(p.mass / (3 * core.mass));
+                hosts.push(p);
+            }
+
+            // Existing moons: follow their planet through mergers, fall in if it swells past
+            // them, and escape if its Hill sphere shrinks (e.g. it migrates towards the star)
+            for (const b of bodies) {
+                if (!b.locked || b.dead) continue;
+                let h = b.moonOf;
+                while (h && h.dead && h.mergedInto) h = h.mergedInto;
+                if (!h || h.dead || h === core || h.locked || !h.hill) {
+                    releaseMoon(b);
+                    continue;
+                }
+                if (h !== b.moonOf) lockMoon(b, h);
+                if (b.orbitR < (h.radius + b.radius) * Config.SOLID_HIT * 1.2) {
+                    releaseMoon(b);
+                    h.merge(b);
+                } else if (b.orbitR > Config.MOON_ESCAPE * h.hill) {
+                    releaseMoon(b);
+                }
+            }
+
+            // Free solid bodies: note which planet's Hill sphere they're in, and capture moons
+            for (const b of bodies) {
+                if (b.locked || b.dead) continue;
+                b.host = null;
+                b.moonOf = null;
+                if (b === core || b.mass < Config.MASS_ASTEROID) continue;
+                let best = Config.HILL_FRACTION, h = null;
+                for (const p of hosts) {
+                    if (p === b || p.mass < b.mass * 3) continue;
+                    const q = Math.hypot(b.x - p.x, b.y - p.y) / p.hill;
+                    if (q < best) {
+                        best = q;
+                        h = p;
+                    }
+                }
+                b.host = h;
+                if (!h || best >= Config.MOON_ZONE) continue;
+
+                // Bound, on an orbit that doesn't hit the planet
+                const mu = Config.G * h.mass;
+                const rx = b.x - h.x, ry = b.y - h.y, vx = b.vx - h.vx, vy = b.vy - h.vy;
+                const r = Math.hypot(rx, ry);
+                const energy = 0.5 * (vx * vx + vy * vy) - mu / r;
+                if (energy >= 0) continue;
+                const l = rx * vy - ry * vx;
+                const e = Math.sqrt(Math.max(0, 1 + (2 * energy * l * l) / (mu * mu)));
+                const a = -mu / (2 * energy);
+                if (a * (1 - e) > (h.radius + b.radius) * Config.SOLID_HIT * 1.2) lockMoon(b, h);
+            }
+
+            // Moonlets on neighbouring orbits gather into bigger moons
+            const byHost = new Map();
+            for (const b of bodies) {
+                if (!b.locked || b.dead) continue;
+                if (!byHost.has(b.moonOf)) byHost.set(b.moonOf, []);
+                byHost.get(b.moonOf).push(b);
+            }
+            for (const [h, moons] of byHost) {
+                moons.sort((m1, m2) => m1.orbitR - m2.orbitR);
+                for (let i = 0; i + 1 < moons.length; i++) {
+                    const m1 = moons[i], m2 = moons[i + 1];
+                    if (m2.orbitR - m1.orbitR > m1.radius + m2.radius) continue;
+                    const big = m1.mass >= m2.mass ? m1 : m2, small = big === m1 ? m2 : m1;
+                    big.orbitR = (m1.orbitR * m1.mass + m2.orbitR * m2.mass) / (m1.mass + m2.mass);
+                    big.mass += small.mass;
+                    big.orbitW = Math.sign(big.orbitW) * circularSpeed(h.mass, big.orbitR) / big.orbitR;
+                    big.updateProperties();
+                    small.locked = false;
+                    small.dead = true;
+                    moons[i + 1] = big;
+                }
+            }
+        }
+
+        // Moons ride along with their planet on circular orbits
+        function moveMoons(dt) {
+            for (const b of bodies) {
+                if (!b.locked || b.dead) continue;
+                const h = b.moonOf;
+                if (!h || h.dead) continue;
+                b.orbitAng += b.orbitW * dt;
+                const c = Math.cos(b.orbitAng), s = Math.sin(b.orbitAng);
+                const v = b.orbitW * b.orbitR;
+                b.x = h.x + c * b.orbitR;
+                b.y = h.y + s * b.orbitR;
+                b.vx = h.vx - s * v;
+                b.vy = h.vy + c * v;
+            }
+        }
+
+        // A glancing blow between planets throws debris into orbit around the survivor,
+        // which can gather into a moon (how our own Moon formed)
+        function glancingImpact(a, b, dx, dy) {
+            const dvx = b.vx - a.vx, dvy = b.vy - a.vy;
+            const speed = Math.hypot(dvx, dvy), dist = Math.hypot(dx, dy);
+            if (speed < 1e-6 || dist < 1e-6) return 0;
+            const l = dx * dvy - dy * dvx;
+            return Math.abs(l) / (speed * dist) > Config.IMPACT_GLANCING ? Math.sign(l) : 0;
+        }
+
+        function spawnDebris(host, impactorMass, spin) {
+            const debris = impactorMass * Config.IMPACT_DEBRIS;
+            if (debris < Config.MASS_ASTEROID) return;
+            const pieces = Math.max(1, Math.min(6, Math.floor(debris / Config.MASS_ASTEROID)));
+            host.mass -= debris;
+            host.updateProperties();
+            const soft = Config.SOFTENING;
+            for (let i = 0; i < pieces; i++) {
+                const a = Math.random() * Math.PI * 2;
+                // Deep inside the Hill sphere, but clear of the planet itself
+                const minR = host.radius * Config.SOLID_HIT * 2.5;
+                const r = Math.max(minR, (host.hill || host.radius * 6) * (0.12 + Math.random() * 0.13));
+                const v = Math.sqrt((Config.G * host.mass * r * r) / Math.pow(r * r + soft, 1.5)) * (0.95 + Math.random() * 0.1);
+                const f = new Body(
+                    host.x + Math.cos(a) * r,
+                    host.y + Math.sin(a) * r,
+                    host.vx - Math.sin(a) * v * spin + (Math.random() - 0.5) * 0.1,
+                    host.vy + Math.cos(a) * v * spin + (Math.random() - 0.5) * 0.1,
+                    debris / pieces
+                );
+                f.origin = 'impact';
+                bodies.push(f);
+                if (host.hill) lockMoon(f, host);
+            }
+            impactCount++;
+            for (let i = 0; i < 24; i++) {
+                const a = Math.random() * Math.PI * 2;
+                effects.push({
+                    kind: 'spark', x: host.x, y: host.y, age: 0, life: 0.6 + Math.random() * 0.6,
+                    vx: Math.cos(a), vy: Math.sin(a), speed: 15 + Math.random() * 40,
+                    size: 0.5 + Math.random()
+                });
+            }
+        }
+
         // ------------------------------------------------------------------
         // Physics: one fixed step
         // ------------------------------------------------------------------
@@ -664,6 +857,15 @@
                 ? { x: heaviest.x, y: heaviest.y, vx: heaviest.vx, vy: heaviest.vy, mass: heaviest.mass }
                 : { x: cmX, y: cmY, vx: cmVx, vy: cmVy, mass: 0 };
 
+            if (anchorOnCore) {
+                if (stepCount % 3 === 0) assignHosts(heaviest);
+            } else if (stepCount % 3 === 0) {
+                for (const b of bodies) {
+                    if (b.locked) releaseMoon(b);
+                    b.host = null;
+                }
+            }
+
             // Gas drag: friction damps each body's radial motion (so the disk settles into orbits)
             // and slowly bleeds away its orbital speed (so it spirals in). It never adds spin.
             // Heavier bodies feel much less of it.
@@ -671,13 +873,17 @@
             const circularize = Math.min(1, Config.DRAG * Config.CIRCULARIZE * diskStrength() * (dt / 0.1));
             if (drag > 0) {
                 for (const b of bodies) {
-                    if (b === heaviest && anchorOnCore) continue;
-                    const rx = b.x - anchor.x, ry = b.y - anchor.y;
+                    // Inside a planet's Hill sphere the gas moves with the planet, not the star
+                    if (b.locked) continue;
+                    const h = b.host && !b.host.dead && b.mass >= Config.MASS_ASTEROID ? b.host : null;
+                    const frame = h || anchor;
+                    if (!h && b === heaviest && anchorOnCore) continue;
+                    const rx = b.x - frame.x, ry = b.y - frame.y;
                     const rSq = rx * rx + ry * ry;
-                    if (rSq < 25) continue;
+                    if (rSq < (h ? h.radius * h.radius : 25)) continue;
                     const r = Math.sqrt(rSq);
                     const ux = rx / r, uy = ry / r;
-                    const rvx = b.vx - anchor.vx, rvy = b.vy - anchor.vy;
+                    const rvx = b.vx - frame.vx, rvy = b.vy - frame.vy;
                     const vr = rvx * ux + rvy * uy;
                     const vt = -rvx * uy + rvy * ux;
                     const ratio = Math.min(1, Config.BASE_MASS / b.mass);
@@ -685,16 +891,16 @@
                     let vr2 = vr * (1 - k);
                     let vt2 = vt * (1 - k * Config.HEADWIND);
 
-                    // Planets embedded in the disk have their orbits rounded off by the gas,
-                    // so they don't plunge into the star on long, thin orbits
-                    if (b.mass >= Config.MASS_PLANET && anchorOnCore) {
+                    // Planets embedded in the disk (and moonlets in a planet's disk) have their orbits
+                    // rounded off by the gas, so they don't plunge in on long, thin orbits
+                    if (anchorOnCore && b.mass >= (h ? Config.MASS_ASTEROID : Config.MASS_PLANET)) {
                         const kc = circularize;
-                        const vc = Math.sqrt((Config.G * anchor.mass) / r) * (vt >= 0 ? 1 : -1);
+                        const vc = Math.sqrt((Config.G * frame.mass) / r) * (vt >= 0 ? 1 : -1);
                         vr2 = vr * (1 - kc);
                         vt2 = vt + (vc - vt) * kc;
                     }
-                    b.vx = anchor.vx + ux * vr2 - uy * vt2;
-                    b.vy = anchor.vy + uy * vr2 + ux * vt2;
+                    b.vx = frame.vx + ux * vr2 - uy * vt2;
+                    b.vy = frame.vy + uy * vr2 + ux * vt2;
                 }
             }
 
@@ -720,10 +926,10 @@
             const capture = core ? core.radius * Config.CORE_CAPTURE : 0;
             for (let i = 0; i < n; i++) {
                 const a = bodies[i];
-                if (a.dead) continue;
+                if (a.dead || a.locked) continue;
                 for (let j = i + 1; j < n; j++) {
                     const b = bodies[j];
-                    if (b.dead) continue;
+                    if (b.dead || b.locked) continue;
                     const dx = b.x - a.x, dy = b.y - a.y;
                     const dSq = dx * dx + dy * dy;
                     let rr = a.radius + b.radius;
@@ -731,11 +937,13 @@
                     else if (a.mass < Config.MASS_ASTEROID && b.mass < Config.MASS_ASTEROID) rr *= Config.GAS_STICK;
                     else if (a.mass >= Config.MASS_PLANET && b.mass >= Config.MASS_PLANET) rr *= Config.SOLID_HIT;
                     if (dSq < rr * rr) {
-                        if (a.mass >= b.mass) {
-                            a.merge(b);
-                            continue;
-                        }
-                        b.merge(a);
+                        const big = a.mass >= b.mass ? a : b, small = big === a ? b : a;
+                        const spin = small.mass >= Config.IMPACT_MIN_MASS && big !== core && big !== star
+                            ? glancingImpact(a, b, dx, dy) : 0;
+                        const impactor = small.mass;
+                        big.merge(small);
+                        if (spin) spawnDebris(big, impactor, spin);
+                        if (big === a) continue;
                         break;
                     }
                     const f = (G * dt) / ((dSq + soft) * Math.sqrt(dSq + 1e-6));
@@ -752,21 +960,34 @@
             let w = 0;
             for (const b of bodies) {
                 if (b.dead) continue;
-                if (!isFinite(b.vx) || !isFinite(b.vy)) { b.vx = 0; b.vy = 0; }
-                b.x += b.vx * dt;
-                b.y += b.vy * dt;
-                const ex = b.x - anchor.x, ey = b.y - anchor.y;
-                if (ex * ex + ey * ey > escapeSq || !isFinite(b.x) || !isFinite(b.y)) {
-                    if (b === star) star = null;
-                    continue;
-                }
-                if (recordTrail && b.mass >= Config.MASS_ASTEROID && b !== star) {
-                    b.trail.push(b.x, b.y);
-                    if (b.trail.length > 160) b.trail.splice(0, 2);
+                if (!b.locked) {
+                    if (!isFinite(b.vx) || !isFinite(b.vy)) { b.vx = 0; b.vy = 0; }
+                    b.x += b.vx * dt;
+                    b.y += b.vy * dt;
+                    const ex = b.x - anchor.x, ey = b.y - anchor.y;
+                    if (ex * ex + ey * ey > escapeSq || !isFinite(b.x) || !isFinite(b.y)) {
+                        if (b === star) star = null;
+                        b.dead = true;
+                        continue;
+                    }
                 }
                 bodies[w++] = b;
             }
             bodies.length = w;
+            moveMoons(dt);
+
+            for (const b of bodies) {
+                if (recordTrail && b.mass >= Config.MASS_ASTEROID && b !== star) {
+                    const h = b.moonOf && !b.moonOf.dead ? b.moonOf : null;
+                    if (h !== b.trailHost) {
+                        b.trail = [];
+                        b.trailHost = h;
+                    }
+                    if (h) b.trail.push(b.x - h.x, b.y - h.y);
+                    else b.trail.push(b.x, b.y);
+                    if (b.trail.length > (h ? 90 : 160)) b.trail.splice(0, 2);
+                }
+            }
             heaviest = null;
             for (const b of bodies) if (!heaviest || b.mass > heaviest.mass) heaviest = b;
             coreBody = star || (heaviest && heaviest.mass >= Config.PROTOSTAR_FRACTION * totalMass ? heaviest : null);
@@ -1026,11 +1247,15 @@
             ctx.lineJoin = 'round';
             for (const b of bodies) {
                 if (b.trail.length < 6) continue;
-                ctx.strokeStyle = b.type === 'gas_giant' ? b.palette[0] : b.type === 'planet' ? b.rocky : '#6b7280';
-                ctx.globalAlpha = b.type === 'asteroid' ? 0.12 : 0.28;
+                // Moon trails are stored relative to their planet, so they trace the moon's orbit
+                const h = b.trailHost;
+                if (h && h.dead) continue;
+                const ox = h ? h.x : 0, oy = h ? h.y : 0;
+                ctx.strokeStyle = h ? '#cbd5e1' : b.type === 'gas_giant' ? b.palette[0] : b.type === 'planet' ? b.rocky : '#6b7280';
+                ctx.globalAlpha = h ? 0.4 : b.type === 'asteroid' ? 0.12 : 0.28;
                 ctx.beginPath();
-                ctx.moveTo(b.trail[0], b.trail[1]);
-                for (let i = 2; i < b.trail.length; i += 2) ctx.lineTo(b.trail[i], b.trail[i + 1]);
+                ctx.moveTo(b.trail[0] + ox, b.trail[1] + oy);
+                for (let i = 2; i < b.trail.length; i += 2) ctx.lineTo(b.trail[i] + ox, b.trail[i + 1] + oy);
                 ctx.lineTo(b.x, b.y);
                 ctx.stroke();
             }
@@ -1189,15 +1414,22 @@
         function updateStats(now) {
             if (now - lastStats < 250) return;
             lastStats = now;
-            let planets = 0, gasMass = 0;
+            let planets = 0, moons = 0, gasMass = 0;
             for (const b of bodies) {
-                if (b.mass >= Config.MASS_PLANET && b !== star) planets++;
+                if (b.locked) moons++;
+                else if (b.mass >= Config.MASS_PLANET && b !== star) planets++;
                 if (b.mass < Config.MASS_ASTEROID && Math.hypot(b.x - anchor.x, b.y - anchor.y) < Config.CLOUD_RADIUS * 2) gasMass += b.mass;
             }
             ui.bodies.textContent = bodies.length;
             ui.time.textContent = (stepCount * Config.MYR_PER_STEP).toFixed(2);
             ui.mass.textContent = heaviest ? Math.floor(heaviest.mass) : 0;
             ui.planets.textContent = planets;
+            ui.moons.textContent = moons;
+            ui.impacts.textContent = impactCount;
+            if (moons > 0 && !moonAnnounced && star) {
+                moonAnnounced = true;
+                showToast('A moon forms');
+            }
 
             const share = heaviest && totalMass ? heaviest.mass / totalMass : 0;
             ui.starPct.textContent = Math.round(share * 100) + '%' + (star ? '' : ` / ${Math.round(Config.STAR_FRACTION * 100)}%`);
