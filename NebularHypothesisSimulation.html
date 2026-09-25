@@ -221,6 +221,62 @@
         .btn-indigo { background: #4f46e5; margin-top: 8px; }
         .btn-indigo:hover { background: #6366f1; }
 
+        .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        select {
+            background: rgba(0, 0, 0, 0.35);
+            color: #e5e7eb;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            padding: 3px 6px;
+            font-size: 12px;
+        }
+
+        label.check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #9ca3af;
+            cursor: pointer;
+        }
+
+        .system h3 {
+            font-size: 12px;
+            font-weight: 600;
+            color: #d1d5db;
+            margin: 16px 0 6px;
+        }
+
+        .system ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            font-size: 12px;
+        }
+
+        .system li {
+            display: grid;
+            grid-template-columns: 14px 1fr auto auto;
+            gap: 6px;
+            align-items: center;
+            padding: 2px 0;
+        }
+
+        .system li .dot {
+            width: 9px;
+            height: 9px;
+        }
+
+        .system .mono {
+            color: #9ca3af;
+            font-size: 11px;
+        }
+
         .legend h3 {
             font-size: 12px;
             font-weight: 600;
@@ -300,7 +356,7 @@
         <div class="panel-head">
             <div>
                 <h1>Stellar Genesis</h1>
-                <p class="subtitle">N-Body Accretion Simulation</p>
+                <p class="subtitle">N-Body Accretion Simulation · <span id="engine">CPU gravity</span></p>
             </div>
             <button id="panelClose" class="icon-btn" aria-label="Hide controls">×</button>
         </div>
@@ -341,6 +397,19 @@
                 <input type="range" id="dragSlider" min="0" max="3" step="0.1" value="1">
                 <p class="note">Makes matter spiral inwards and clump</p>
             </div>
+
+            <div class="row">
+                <label class="slider" for="particleSelect"><span>Particles</span></label>
+                <select id="particleSelect">
+                    <option value="auto">Auto</option>
+                    <option value="1200">1,200</option>
+                    <option value="2400">2,400</option>
+                    <option value="4800">4,800</option>
+                </select>
+            </div>
+            <p class="note">More particles is smoother and more realistic; applies when the cloud restarts</p>
+
+            <label class="check"><input type="checkbox" id="frostToggle" checked> Show frost line</label>
         </div>
 
         <hr>
@@ -351,14 +420,22 @@
         </div>
         <button id="btnSpawnDisk" class="btn btn-indigo">Inject Gas Cloud</button>
 
+        <div id="system" class="system">
+            <h3>Planets <span class="note">(distance scaled so the frost line is at 2.7 AU, like the Sun's)</span></h3>
+            <ul id="systemList"><li class="note">No planets yet</li></ul>
+        </div>
+
         <hr>
 
         <div class="legend">
             <h3>Evolution Stages</h3>
             <ul>
                 <li><span class="dot" style="background:#93c5fd;opacity:.6;box-shadow:0 0 6px rgba(147,197,253,.6)"></span> Nebula Gas / Dust</li>
-                <li><span class="dot" style="background:#9ca3af"></span> Asteroids / Protoplanets</li>
+                <li><span class="dot" style="background:#9ca3af"></span> Asteroids / Planetesimals</li>
+                <li><span class="dot" style="background:#b0835a"></span> Rocky Planets</li>
+                <li><span class="dot" style="background:#8fd0e0"></span> Ice Worlds / Ice Giants</li>
                 <li><span class="dot" style="background:#d9a066"></span> Gas Giants</li>
+                <li><span class="dot" style="border:1px dashed rgba(160,220,255,.8);background:none"></span> Frost line: ice only freezes beyond it</li>
                 <li><span class="dot" style="background:#cbd5e1;width:8px;height:8px;margin:0 2px"></span> Moons (trail drawn around their planet)</li>
                 <li><span class="dot" style="background:#dc2626;box-shadow:0 0 8px rgba(239,68,68,.9)"></span> Protostar</li>
                 <li><span class="dot" style="background:#fef9c3;box-shadow:0 0 10px rgba(255,255,200,1)"></span> Ignited Star</li>
@@ -379,8 +456,10 @@
             DRAG: 1.0,               // Gas drag multiplier
             SPIN_MULTIPLIER: 1.0,    // How fast the cloud turns, relative to orbital speed at its edge
 
-            // Mass thresholds for visual categorization
+            // Mass thresholds (solid mass for planetesimals)
             MASS_ASTEROID: 4,
+            PLANETESIMAL_MASS: 1.0,  // Condensed solids needed for a nebula parcel to become a planetesimal
+            SUBLIMATION: 0.004,      // Share of its ice a small body loses per step inside the frost line
             MASS_PLANET: 10,
             MASS_GAS_GIANT: 60,
 
@@ -399,23 +478,36 @@
             IMPACT_MIN_MASS: 10,     // Smallest impactor that can blast debris into orbit
             IMPACT_GLANCING: 0.35,   // How off-centre a hit must be (0 = head-on, 1 = grazing)
             IMPACT_DEBRIS: 0.2,      // Fraction of the impactor thrown into orbit as moonlets
+            INFALL_DAMPING: 0.1,     // How much gas falling inwards is slowed, relative to outward motion
+            PARCEL_GAS_MAX: 1.5,     // Most gas a nebula parcel holds; extra stays in neighbouring parcels
             GAS_STICK: 1.0,          // Contact distance multiplier when two gas particles meet
-            HEADWIND: 0.1,           // How much slower than orbital speed the gas moves
+            HEADWIND: 0.1,           // How much orbital speed solids lose to the gas's headwind
+            GAS_HEADWIND: 0.1,       // How quickly gas itself loses orbital speed (viscosity feeding the star)
             CIRCULARIZE: 0.004,      // How quickly the disk rounds off planets' orbits (per step)
-            PLANET_DRAG: 0.15,       // Extra drag factor for planets (makes them migrate inwards)
+            PLANET_DRAG: 0.15,       // Drag factor for solid bodies (makes them migrate inwards)
             DENSITY_POWER: 0.85,     // Higher = cloud more concentrated towards the middle
-            STAR_FRACTION: 0.35,
+            STAR_FRACTION: 0.6,      // The star ignites once it holds this share of the system's mass
             MIN_STAR_MASS: 400,
 
-            // After ignition the young star's wind clears the leftover gas, and the disk thins out
-            WIND_STRENGTH: 60,
-            WIND_DECAY_STEPS: 1200,
-            DISK_DECAY_STEPS: 500,
+            // After ignition the star's light boils the leftover nebula away and the disk thins out
+            WIND_STRENGTH: 60,       // Strength of the young star's radiation
+            EVAPORATION: 0.0015,     // How fast that radiation boils the leftover nebula away
+            WIND_DECAY_STEPS: 1200,  // How quickly the young star's output settles down
+            DISK_DECAY_STEPS: 500,   // How quickly the gas disk's drag fades after ignition
+
+            // Composition of the nebula, and where ice can freeze
+            ROCK_FRACTION: 0.25,     // Rock (silicates, metals): condenses anywhere
+            ICE_FRACTION: 0.35,      // Water/ammonia/methane ice: only condenses beyond the frost line
+                                     // (the rest is hydrogen and helium gas)
+            FROST_RADIUS: 0.55,      // Frost line radius, as a fraction of the cloud's starting radius
+            CRITICAL_CORE: 18,       // Solid core mass above which a planet can pull in gas (runaway growth)
 
             // Initial cloud generation (world units, independent of screen size)
-            INITIAL_PARTICLES: 1200,
+            PARTICLES: 'auto',       // 'auto' = 2400 with GPU gravity, 1200 on the CPU
+            TOTAL_MASS: 1440,
             CLOUD_RADIUS: 320,
-            BASE_MASS: 1.2,
+            DRAG_REF_MASS: 1.2,      // Drag is scaled relative to a parcel of this mass
+            USE_GPU: true,
 
             MYR_PER_STEP: 0.0005
         };
@@ -452,20 +544,33 @@
             phase: document.getElementById('phase'),
             starPct: document.getElementById('starPct'),
             starBar: document.getElementById('starBar'),
-            toast: document.getElementById('toast')
+            toast: document.getElementById('toast'),
+            system: document.getElementById('systemList')
         };
 
         // ------------------------------------------------------------------
         // Colours
         // ------------------------------------------------------------------
         const ROCKY_COLORS = ['#b0835a', '#8f9aa3', '#c2624a', '#6f8f72', '#9c8f7a', '#5f7fa6', '#a3876b'];
-        const GIANT_PALETTES = [
+        const GAS_PALETTES = [
             ['#d9a066', '#b5763f', '#f0d2a0'],
             ['#c9b28a', '#a08a62', '#e8dcc0'],
-            ['#7fb3d9', '#5a8fbf', '#b8dcf0'],
             ['#d98f6f', '#b0604a', '#f2c0a0'],
-            ['#9fc9b8', '#6f9f8f', '#d0ebe0']
+            ['#e0c08a', '#b89560', '#f5e3bd']
         ];
+        const ICE_PALETTES = [
+            ['#8fd0e0', '#6fb3cf', '#c8ecf5'],
+            ['#6f9fe0', '#4f7fc9', '#a8c8f5'],
+            ['#a8e0d8', '#7fc2b8', '#d8f5f0']
+        ];
+
+        // Colour of a solid body by what it's made of
+        function bodyColor(b) {
+            if (b.type === 'gas_giant') return b.gasPalette[0];
+            if (b.type === 'icy' || b.type === 'ice_giant') return b.icePalette[0];
+            if (b.type === 'planet') return b.rocky;
+            return b.ice > b.rock ? '#a9c2d0' : '#8b8f96';
+        }
 
         // Gas colour by distance from the core: hot near the middle, cold at the edge
         const GAS_GRADIENT = [
@@ -531,54 +636,141 @@
 
         // ------------------------------------------------------------------
         // Bodies
+        //
+        // Every body carries three materials: rock, ice and gas (hydrogen/helium).
+        // Nebula parcels are a mix of all three. Solids only condense out of them where it's cold
+        // enough: inside the frost line only rock condenses, beyond it rock and ice. A solid body can
+        // only hold on to gas once its core passes a critical mass, which is why rocky planets form
+        // close to the star and gas giants further out.
         // ------------------------------------------------------------------
         class Body {
-            constructor(x, y, vx, vy, mass) {
+            constructor(x, y, vx, vy, rock, ice = 0, gas = 0, solid = false) {
                 this.id = nextId++;
                 this.x = x;
                 this.y = y;
                 this.vx = vx;
                 this.vy = vy;
-                this.mass = mass;
+                this.rock = rock;
+                this.ice = ice;
+                this.gas = gas;
+                this.isSolid = solid;   // condensed body (planetesimal, planet, moon) vs nebula parcel
                 this.dead = false;
                 // Picked once so a planet keeps its look as it grows
                 this.rocky = ROCKY_COLORS[Math.floor(Math.random() * ROCKY_COLORS.length)];
-                this.palette = GIANT_PALETTES[Math.floor(Math.random() * GIANT_PALETTES.length)];
+                this.gasPalette = GAS_PALETTES[Math.floor(Math.random() * GAS_PALETTES.length)];
+                this.icePalette = ICE_PALETTES[Math.floor(Math.random() * ICE_PALETTES.length)];
                 this.tilt = (Math.random() - 0.5) * 0.8;
                 this.bandSeed = Math.random() * 10;
                 this.trail = [];
                 this.trailHost = null;   // trails of moons are stored relative to their planet
                 this.host = null;        // planet whose Hill sphere this body is inside
-                this.moonOf = null;      // planet this body is gravitationally bound to
+                this.moonOf = null;      // planet this body is a moon of
                 this.hill = 0;
                 this.updateProperties();
             }
 
+            get solidMass() {
+                return this.rock + this.ice;
+            }
+
             updateProperties() {
+                this.mass = this.rock + this.ice + this.gas;
+                const solidMass = this.rock + this.ice;
                 let density = 1.0;
-                if (this.mass >= Config.MASS_PLANET) density = 1.5;
-                if (this.mass >= Config.MASS_GAS_GIANT) density = 0.8;
-                if (this === star) density = 2.0;
-                this.radius = Math.max(1.5, Math.pow((this.mass / density) * 10, 1 / 3));
-
-                if (this.mass >= Config.MASS_GAS_GIANT) this.type = 'gas_giant';
-                else if (this.mass >= Config.MASS_PLANET) this.type = 'planet';
-                else if (this.mass >= Config.MASS_ASTEROID) this.type = 'asteroid';
-                else this.type = 'gas';
+                if (this === star) {
+                    this.type = 'star';
+                    density = 2.0;
+                } else if (!this.isSolid) {
+                    this.type = 'gas';
+                } else if (this.gas > solidMass && this.mass >= Config.MASS_PLANET * 3) {
+                    this.type = 'gas_giant';
+                    density = 0.7;
+                } else if (this.mass >= Config.MASS_PLANET && this.gas >= this.mass * 0.25) {
+                    // A big icy/rocky core under a thick hydrogen envelope: Neptune-like
+                    this.type = 'ice_giant';
+                    density = 0.9;
+                } else if (this.mass >= Config.MASS_PLANET) {
+                    this.type = this.ice > this.rock ? 'icy' : 'planet';
+                    density = this.ice > this.rock ? 1.0 : 1.6;
+                } else {
+                    this.type = 'asteroid';
+                    density = this.ice > this.rock ? 1.0 : 1.6;
+                }
+                this.radius = Math.max(1.2, Math.pow((this.mass / density) * 10, 1 / 3));
             }
 
+            // Absorb the whole of another body, conserving momentum
             merge(other) {
-                const totalMass = this.mass + other.mass;
-                this.vx = (this.vx * this.mass + other.vx * other.mass) / totalMass;
-                this.vy = (this.vy * this.mass + other.vy * other.mass) / totalMass;
-                this.x = (this.x * this.mass + other.x * other.mass) / totalMass;
-                this.y = (this.y * this.mass + other.y * other.mass) / totalMass;
-                this.mass = totalMass;
-                if (other === star) star = this;
-                this.updateProperties();
-                other.dead = true;
-                other.mergedInto = this;
+                absorb(this, other, other.rock, other.ice, other.gas);
             }
+        }
+
+        // Move some of one body's material into another, conserving momentum
+        function absorb(t, s, rock, ice, gas) {
+            let dm = rock + ice + gas;
+            if (dm <= 1e-9) return false;
+            // Don't leave tiny scraps behind
+            if (s.mass - dm < 0.02) {
+                rock = s.rock;
+                ice = s.ice;
+                gas = s.gas;
+                dm = s.mass;
+            }
+            const m = t.mass + dm;
+            t.vx = (t.vx * t.mass + s.vx * dm) / m;
+            t.vy = (t.vy * t.mass + s.vy * dm) / m;
+            t.x = (t.x * t.mass + s.x * dm) / m;
+            t.y = (t.y * t.mass + s.y * dm) / m;
+            t.rock += rock;
+            t.ice += ice;
+            t.gas += gas;
+            s.rock -= rock;
+            s.ice -= ice;
+            s.gas -= gas;
+            if (s.rock + s.ice + s.gas < 1e-9) {
+                s.rock = s.ice = s.gas = 0;
+                s.dead = true;
+                s.mergedInto = t;
+                if (s === star) star = t;
+            }
+            t.updateProperties();
+            s.updateProperties();
+            return true;
+        }
+
+        // Frost line: beyond it the disk is cold enough for ice to freeze. It moves outwards as the
+        // young star grows brighter.
+        let frostR = 0;
+        let frostCentre = { x: 0, y: 0 };
+
+        function beyondFrost(b) {
+            return frostR <= 0 || Math.hypot(b.x - frostCentre.x, b.y - frostCentre.y) > frostR;
+        }
+
+        // A nebula parcel that has gathered enough condensable material becomes a planetesimal.
+        // Whatever can't condense here (gas, and ice inside the frost line) stays behind as nebula.
+        // (Dust only grows into planetesimals once the protostar and its disk exist.)
+        function condense(b) {
+            if (b.isSolid || b === star || b.dead || !coreBody || b === coreBody) return;
+            const cold = beyondFrost(b);
+            const solids = b.rock + (cold ? b.ice : 0);
+            if (solids < Config.PLANETESIMAL_MASS) return;
+            const ventIce = cold ? 0 : b.ice;
+            if (b.gas + ventIce > 0.02) {
+                const a = Math.random() * Math.PI * 2;
+                bodies.push(new Body(
+                    b.x + Math.cos(a) * (b.radius + 1), b.y + Math.sin(a) * (b.radius + 1),
+                    b.vx, b.vy, 0, ventIce, b.gas
+                ));
+            }
+            b.gas = 0;
+            b.ice -= ventIce;
+            b.isSolid = true;
+            b.updateProperties();
+        }
+
+        function particleCount() {
+            return Config.PARTICLES === 'auto' ? (GpuGravity.ok ? 2400 : 1200) : Config.PARTICLES;
         }
 
         function initSimulation() {
@@ -592,19 +784,21 @@
             diskRefreshStep = 0;
             impactCount = 0;
             moonAnnounced = false;
+            frostR = 0;
             cam.x = 0;
             cam.y = 0;
             cam.fitExtent = Config.CLOUD_RADIUS;
             cam.scale = targetScale();
             ui.toast.classList.remove('show');
 
+            const count = particleCount();
             const R = Config.CLOUD_RADIUS;
-            const totalCloudMass = Config.INITIAL_PARTICLES * Config.BASE_MASS;
+            const baseMass = Config.TOTAL_MASS / count;
             const densityPower = Config.DENSITY_POWER;
-            const vEdge = Math.sqrt((Config.G * totalCloudMass) / R);
+            const vEdge = Math.sqrt((Config.G * Config.TOTAL_MASS) / R);
             let sysVx = 0, sysVy = 0, sysMass = 0;
 
-            for (let i = 0; i < Config.INITIAL_PARTICLES; i++) {
+            for (let i = 0; i < count; i++) {
                 const r = R * Math.pow(Math.random(), densityPower);
                 const theta = Math.random() * Math.PI * 2;
                 const x = r * Math.cos(theta);
@@ -617,8 +811,10 @@
                 const vx = -Math.sin(theta) * v + (Math.random() - 0.5) * jitter;
                 const vy = Math.cos(theta) * v + (Math.random() - 0.5) * jitter;
 
-                const mass = Config.BASE_MASS * (0.5 + Math.random());
-                bodies.push(new Body(x, y, vx, vy, mass));
+                const mass = baseMass * (0.5 + Math.random());
+                bodies.push(new Body(x, y, vx, vy,
+                    mass * Config.ROCK_FRACTION, mass * Config.ICE_FRACTION,
+                    mass * (1 - Config.ROCK_FRACTION - Config.ICE_FRACTION)));
                 sysVx += vx * mass;
                 sysVy += vy * mass;
                 sysMass += mass;
@@ -640,13 +836,15 @@
                 const r = R * (0.8 + Math.random() * 0.4);
                 const theta = Math.random() * Math.PI * 2;
                 const v = Math.sqrt((Config.G * totalMass) / r) * 0.9 * Config.SPIN_MULTIPLIER;
+                const mass = 0.6;
                 // Orbit the current centre, moving along with it
                 bodies.push(new Body(
                     centre.x + r * Math.cos(theta),
                     centre.y + r * Math.sin(theta),
                     centre.vx - Math.sin(theta) * v + (Math.random() - 0.5),
                     centre.vy + Math.cos(theta) * v + (Math.random() - 0.5),
-                    Config.BASE_MASS * 0.5
+                    mass * Config.ROCK_FRACTION, mass * Config.ICE_FRACTION,
+                    mass * (1 - Config.ROCK_FRACTION - Config.ICE_FRACTION)
                 ));
             }
             diskRefreshStep = stepCount;
@@ -659,9 +857,13 @@
             return diskRefreshStep > ignitionStep && since < 0 ? 1 : Math.exp(-since / Config.DISK_DECAY_STEPS);
         }
 
+        // ------------------------------------------------------------------
+        // Moons
+        //
         // Near a planet its gravity beats the star's (its Hill sphere). A solid body captured deep
         // inside it becomes a moon: from then on it follows a circular (tidally settled) orbit
         // around its planet, travels with it, and moves to whatever the planet merges into.
+        // ------------------------------------------------------------------
         function circularSpeed(mass, r) {
             const s = Config.SOFTENING;
             return Math.sqrt((Config.G * mass * r * r) / Math.pow(r * r + s, 1.5));
@@ -689,7 +891,7 @@
         function assignHosts(core) {
             const hosts = [];
             for (const p of bodies) {
-                if (p === core || p.dead || p.locked || p.mass < Config.MASS_PLANET) continue;
+                if (p === core || p.dead || p.locked || !p.isSolid || p.mass < Config.MASS_PLANET) continue;
                 p.hill = Math.hypot(p.x - core.x, p.y - core.y) * Math.cbrt(p.mass / (3 * core.mass));
                 hosts.push(p);
             }
@@ -718,7 +920,7 @@
                 if (b.locked || b.dead) continue;
                 b.host = null;
                 b.moonOf = null;
-                if (b === core || b.mass < Config.MASS_ASTEROID) continue;
+                if (b === core || !b.isSolid) continue;
                 let best = Config.HILL_FRACTION, h = null;
                 for (const p of hosts) {
                     if (p === b || p.mass < b.mass * 3) continue;
@@ -756,12 +958,16 @@
                     const m1 = moons[i], m2 = moons[i + 1];
                     if (m2.orbitR - m1.orbitR > m1.radius + m2.radius) continue;
                     const big = m1.mass >= m2.mass ? m1 : m2, small = big === m1 ? m2 : m1;
-                    big.orbitR = (m1.orbitR * m1.mass + m2.orbitR * m2.mass) / (m1.mass + m2.mass);
-                    big.mass += small.mass;
-                    big.orbitW = Math.sign(big.orbitW) * circularSpeed(h.mass, big.orbitR) / big.orbitR;
+                    const r = (m1.orbitR * m1.mass + m2.orbitR * m2.mass) / (m1.mass + m2.mass);
+                    big.rock += small.rock;
+                    big.ice += small.ice;
+                    big.gas += small.gas;
+                    big.orbitR = r;
+                    big.orbitW = Math.sign(big.orbitW) * circularSpeed(h.mass, r) / r;
                     big.updateProperties();
                     small.locked = false;
                     small.dead = true;
+                    small.mergedInto = big;
                     moons[i + 1] = big;
                 }
             }
@@ -793,25 +999,30 @@
             return Math.abs(l) / (speed * dist) > Config.IMPACT_GLANCING ? Math.sign(l) : 0;
         }
 
-        function spawnDebris(host, impactorMass, spin) {
-            const debris = impactorMass * Config.IMPACT_DEBRIS;
+        function spawnDebris(host, impactor, spin) {
+            // Debris is mostly the impactor's rock and ice
+            const solids = impactor.rock + impactor.ice;
+            const debris = Math.min(solids * Config.IMPACT_DEBRIS, host.rock + host.ice);
             if (debris < Config.MASS_ASTEROID) return;
+            const rockShare = solids > 0 ? impactor.rock / solids : 1;
             const pieces = Math.max(1, Math.min(6, Math.floor(debris / Config.MASS_ASTEROID)));
-            host.mass -= debris;
+            let rockOut = Math.min(host.rock, debris * rockShare);
+            let iceOut = Math.min(host.ice, debris - rockOut);
+            rockOut = Math.min(host.rock, debris - iceOut);
+            host.rock -= rockOut;
+            host.ice -= iceOut;
             host.updateProperties();
-            const soft = Config.SOFTENING;
             for (let i = 0; i < pieces; i++) {
                 const a = Math.random() * Math.PI * 2;
-                // Deep inside the Hill sphere, but clear of the planet itself
                 const minR = host.radius * Config.SOLID_HIT * 2.5;
                 const r = Math.max(minR, (host.hill || host.radius * 6) * (0.12 + Math.random() * 0.13));
-                const v = Math.sqrt((Config.G * host.mass * r * r) / Math.pow(r * r + soft, 1.5)) * (0.95 + Math.random() * 0.1);
+                const v = circularSpeed(host.mass, r) * (0.95 + Math.random() * 0.1);
                 const f = new Body(
                     host.x + Math.cos(a) * r,
                     host.y + Math.sin(a) * r,
-                    host.vx - Math.sin(a) * v * spin + (Math.random() - 0.5) * 0.1,
-                    host.vy + Math.cos(a) * v * spin + (Math.random() - 0.5) * 0.1,
-                    debris / pieces
+                    host.vx - Math.sin(a) * v * spin,
+                    host.vy + Math.cos(a) * v * spin,
+                    rockOut / pieces, iceOut / pieces, 0, true
                 );
                 f.origin = 'impact';
                 bodies.push(f);
@@ -825,6 +1036,251 @@
                     vx: Math.cos(a), vy: Math.sin(a), speed: 15 + Math.random() * 40,
                     size: 0.5 + Math.random()
                 });
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Gravity on the GPU (WebGL2): every body's pull on every other body is the expensive part,
+        // O(N²), so it runs in a fragment shader, one pixel per body. Falls back to the CPU if
+        // WebGL2 float render targets aren't available.
+        // ------------------------------------------------------------------
+        const GpuGravity = (() => {
+            const W = 256;
+            let gl = null, prog = null, posTex = null, accTex = null, fbo = null, rowsCap = 0;
+            let upload = null, result = null, uPos, uN, uW, uSoft;
+
+            const VS = `#version 300 es
+                void main() {
+                    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+                    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+                }`;
+            const FS = `#version 300 es
+                precision highp float;
+                precision highp int;
+                uniform highp sampler2D uPos;
+                uniform int uN;
+                uniform int uW;
+                uniform float uSoft;
+                out vec4 outAcc;
+                void main() {
+                    int i = int(gl_FragCoord.y) * uW + int(gl_FragCoord.x);
+                    if (i >= uN) { outAcc = vec4(0.0); return; }
+                    vec2 pi = texelFetch(uPos, ivec2(i % uW, i / uW), 0).xy;
+                    vec2 acc = vec2(0.0);
+                    for (int j = 0; j < uN; j++) {
+                        if (j == i) continue;
+                        vec4 pj = texelFetch(uPos, ivec2(j % uW, j / uW), 0);
+                        vec2 d = pj.xy - pi;
+                        float dSq = dot(d, d);
+                        acc += d * (pj.z / ((dSq + uSoft) * sqrt(dSq + 1e-6)));
+                    }
+                    outAcc = vec4(acc, 0.0, 1.0);
+                }`;
+
+            function shader(type, src) {
+                const s = gl.createShader(type);
+                gl.shaderSource(s, src);
+                gl.compileShader(s);
+                if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+                return s;
+            }
+
+            function makeTex() {
+                const t = gl.createTexture();
+                gl.bindTexture(gl.TEXTURE_2D, t);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                return t;
+            }
+
+            function ensure(n) {
+                const rows = Math.max(1, Math.ceil(n / W));
+                if (rows <= rowsCap) return;
+                rowsCap = Math.max(rows, Math.ceil(rowsCap * 1.5));
+                for (const t of [posTex, accTex]) {
+                    gl.bindTexture(gl.TEXTURE_2D, t);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, W, rowsCap, 0, gl.RGBA, gl.FLOAT, null);
+                }
+                gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+                gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, accTex, 0);
+                if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('float framebuffer unsupported');
+                upload = new Float32Array(W * rowsCap * 4);
+                result = new Float32Array(W * rowsCap * 4);
+            }
+
+            function init() {
+                try {
+                    const c = document.createElement('canvas');
+                    c.addEventListener('webglcontextlost', () => { gl = null; });
+                    gl = c.getContext('webgl2', { antialias: false, depth: false, stencil: false, powerPreference: 'high-performance' });
+                    if (!gl || !gl.getExtension('EXT_color_buffer_float')) throw new Error('WebGL2 float targets unavailable');
+                    prog = gl.createProgram();
+                    gl.attachShader(prog, shader(gl.VERTEX_SHADER, VS));
+                    gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FS));
+                    gl.linkProgram(prog);
+                    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+                    uPos = gl.getUniformLocation(prog, 'uPos');
+                    uN = gl.getUniformLocation(prog, 'uN');
+                    uW = gl.getUniformLocation(prog, 'uW');
+                    uSoft = gl.getUniformLocation(prog, 'uSoft');
+                    posTex = makeTex();
+                    accTex = makeTex();
+                    fbo = gl.createFramebuffer();
+                    gl.bindVertexArray(gl.createVertexArray());
+                    ensure(2048);
+                    return true;
+                } catch (e) {
+                    console.warn('GPU gravity unavailable, using the CPU:', e.message);
+                    gl = null;
+                    return false;
+                }
+            }
+
+            // Accelerations (without G) for the listed bodies, relative to an origin for precision
+            function compute(list, ox, oy, soft) {
+                const n = list.length;
+                ensure(n);
+                const rows = Math.max(1, Math.ceil(n / W));
+                for (let i = 0; i < n; i++) {
+                    const b = list[i], k = i * 4;
+                    upload[k] = b.x - ox;
+                    upload[k + 1] = b.y - oy;
+                    upload[k + 2] = b.mass;
+                    upload[k + 3] = 0;
+                }
+                gl.bindTexture(gl.TEXTURE_2D, posTex);
+                gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, W, rows, gl.RGBA, gl.FLOAT, upload, 0);
+                gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+                gl.viewport(0, 0, W, rows);
+                gl.useProgram(prog);
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, posTex);
+                gl.uniform1i(uPos, 0);
+                gl.uniform1i(uN, n);
+                gl.uniform1i(uW, W);
+                gl.uniform1f(uSoft, soft);
+                gl.drawArrays(gl.TRIANGLES, 0, 3);
+                gl.readPixels(0, 0, W, rows, gl.RGBA, gl.FLOAT, result, 0);
+                return result;
+            }
+
+            return { init, compute, get ok() { return !!gl; } };
+        })();
+        GpuGravity.init();
+
+        const gravityList = [];
+        const ENCLOSED_BINS = 256;
+        const enclosed = new Float64Array(ENCLOSED_BINS);
+
+        function applyGravity(dt) {
+            gravityList.length = 0;
+            for (const b of bodies) if (!b.dead && !b.locked) gravityList.push(b);
+            const n = gravityList.length;
+            const G = Config.G, soft = Config.SOFTENING;
+            if (GpuGravity.ok && Config.USE_GPU && n > 64) {
+                const acc = GpuGravity.compute(gravityList, anchor.x, anchor.y, soft);
+                for (let i = 0; i < n; i++) {
+                    const b = gravityList[i];
+                    b.vx += acc[i * 4] * G * dt;
+                    b.vy += acc[i * 4 + 1] * G * dt;
+                }
+                return;
+            }
+            for (let i = 0; i < n; i++) {
+                const a = gravityList[i];
+                for (let j = i + 1; j < n; j++) {
+                    const b = gravityList[j];
+                    const dx = b.x - a.x, dy = b.y - a.y;
+                    const dSq = dx * dx + dy * dy;
+                    const f = (G * dt) / ((dSq + soft) * Math.sqrt(dSq + 1e-6));
+                    a.vx += dx * f * b.mass;
+                    a.vy += dy * f * b.mass;
+                    b.vx -= dx * f * a.mass;
+                    b.vy -= dy * f * a.mass;
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Collisions: a spatial grid so only nearby pairs are checked
+        // ------------------------------------------------------------------
+        function contactDistance(a, b) {
+            const rr = a.radius + b.radius;
+            if (!a.isSolid && !b.isSolid) return rr * Config.GAS_STICK;
+            if (a.mass >= Config.MASS_PLANET && b.mass >= Config.MASS_PLANET) return rr * Config.SOLID_HIT;
+            return rr;
+        }
+
+        function collide(a, b, dx, dy) {
+            // Two nebula parcels: their dust gathers together (and may condense into a planetesimal),
+            // but gas doesn't clump into free-floating balls; it stays spread through the disk
+            if (!a.isSolid && !b.isSolid) {
+                const big = a.solidMass >= b.solidMass ? a : b, small = big === a ? b : a;
+                const gasRoom = Math.max(0, Config.PARCEL_GAS_MAX - big.gas);
+                absorb(big, small, small.rock, small.ice, Math.min(small.gas, gasRoom));
+                condense(big);
+                return;
+            }
+            // Two solid bodies: they merge; a glancing blow throws debris into orbit
+            if (a.isSolid && b.isSolid) {
+                const big = a.mass >= b.mass ? a : b, small = big === a ? b : a;
+                const spin = small.mass >= Config.IMPACT_MIN_MASS ? glancingImpact(a, b, dx, dy) : 0;
+                const impactor = { rock: small.rock, ice: small.ice };
+                big.merge(small);
+                if (spin) spawnDebris(big, impactor, spin);
+                return;
+            }
+            // A solid body sweeping through nebula takes what it can hold: rock always, ice only
+            // beyond the frost line, and gas only once its core is massive enough
+            const s = a.isSolid ? a : b, p = s === a ? b : a;
+            absorb(s, p, p.rock, beyondFrost(s) ? p.ice : 0, s.solidMass >= Config.CRITICAL_CORE ? p.gas : 0);
+        }
+
+        const grid = new Map();
+        function processCollisions(core, capture) {
+            // The core sweeps up everything that reaches it
+            if (core) {
+                for (const b of bodies) {
+                    if (b === core || b.dead || b.locked) continue;
+                    // Its dense envelope also drags in small solid bodies, not just nebula
+                    let rr = b.isSolid && b.mass >= Config.MASS_PLANET ? core.radius + b.radius : capture;
+                    if (b.isSolid && b.mass >= Config.MASS_PLANET) rr *= Config.SOLID_HIT;
+                    const dx = b.x - core.x, dy = b.y - core.y;
+                    if (dx * dx + dy * dy < rr * rr) core.merge(b);
+                }
+            }
+
+            let maxR = 0;
+            for (const b of bodies) if (!b.dead && !b.locked && b !== core && b.radius > maxR) maxR = b.radius;
+            const cell = Math.max(6, maxR * 2);
+            grid.clear();
+            for (const b of bodies) {
+                if (b.dead || b.locked || b === core) continue;
+                const key = (Math.floor(b.x / cell) + 32768) * 65536 + (Math.floor(b.y / cell) + 32768);
+                let list = grid.get(key);
+                if (!list) grid.set(key, list = []);
+                list.push(b);
+            }
+
+            const check = (a, b) => {
+                if (a.dead || b.dead) return;
+                const dx = b.x - a.x, dy = b.y - a.y;
+                const rr = contactDistance(a, b);
+                if (dx * dx + dy * dy < rr * rr) collide(a, b, dx, dy);
+            };
+            const NEIGHBOURS = [[1, 0], [1, 1], [0, 1], [-1, 1]];
+            for (const [key, list] of grid) {
+                const cx = Math.floor(key / 65536), cy = key % 65536;
+                for (let i = 0; i < list.length; i++) {
+                    const a = list[i];
+                    for (let j = i + 1; j < list.length; j++) check(a, list[j]);
+                    for (const [ox, oy] of NEIGHBOURS) {
+                        const other = grid.get((cx + ox) * 65536 + (cy + oy));
+                        if (other) for (const b of other) check(a, b);
+                    }
+                }
             }
         }
 
@@ -857,6 +1313,10 @@
                 ? { x: heaviest.x, y: heaviest.y, vx: heaviest.vx, vy: heaviest.vy, mass: heaviest.mass }
                 : { x: cmX, y: cmY, vx: cmVx, vy: cmVy, mass: 0 };
 
+            // The frost line: where the disk is cold enough for ice (set by the disk's temperature)
+            frostCentre = hasCore ? heaviest : anchor;
+            frostR = Config.FROST_RADIUS * Config.CLOUD_RADIUS;
+
             if (anchorOnCore) {
                 if (stepCount % 3 === 0) assignHosts(heaviest);
             } else if (stepCount % 3 === 0) {
@@ -866,6 +1326,17 @@
                 }
             }
 
+            // Mass inside each radius (so circular speeds include the disk, not just the star)
+            const binW = (Config.CLOUD_RADIUS * 4) / ENCLOSED_BINS;
+            enclosed.fill(0);
+            for (const b of bodies) {
+                if (b === heaviest && anchorOnCore) continue;
+                const i = Math.min(ENCLOSED_BINS - 1, Math.floor(Math.hypot(b.x - anchor.x, b.y - anchor.y) / binW));
+                enclosed[i] += b.mass;
+            }
+            for (let i = 1; i < ENCLOSED_BINS; i++) enclosed[i] += enclosed[i - 1];
+            const massInside = (r) => anchor.mass + enclosed[Math.max(0, Math.min(ENCLOSED_BINS - 1, Math.floor(r / binW) - 1))];
+
             // Gas drag: friction damps each body's radial motion (so the disk settles into orbits)
             // and slowly bleeds away its orbital speed (so it spirals in). It never adds spin.
             // Heavier bodies feel much less of it.
@@ -873,9 +1344,9 @@
             const circularize = Math.min(1, Config.DRAG * Config.CIRCULARIZE * diskStrength() * (dt / 0.1));
             if (drag > 0) {
                 for (const b of bodies) {
-                    // Inside a planet's Hill sphere the gas moves with the planet, not the star
                     if (b.locked) continue;
-                    const h = b.host && !b.host.dead && b.mass >= Config.MASS_ASTEROID ? b.host : null;
+                    // Inside a planet's Hill sphere solids move with the planet's own disk
+                    const h = b.host && !b.host.dead && b.isSolid ? b.host : null;
                     const frame = h || anchor;
                     if (!h && b === heaviest && anchorOnCore) continue;
                     const rx = b.x - frame.x, ry = b.y - frame.y;
@@ -886,16 +1357,19 @@
                     const rvx = b.vx - frame.vx, rvy = b.vy - frame.vy;
                     const vr = rvx * ux + rvy * uy;
                     const vt = -rvx * uy + rvy * ux;
-                    const ratio = Math.min(1, Config.BASE_MASS / b.mass);
-                    const k = drag * (b.mass < Config.MASS_PLANET ? Math.pow(ratio, 0.6) : ratio * Config.PLANET_DRAG);
-                    let vr2 = vr * (1 - k);
-                    let vt2 = vt * (1 - k * Config.HEADWIND);
+                    // Gas always moves with the gas; solids decouple from it as they grow
+                    const ratio = b.isSolid ? Math.min(1, Config.DRAG_REF_MASS / b.mass) : 1;
+                    // Planetesimals (kilometres across and up) barely notice the gas; nebula parcels do
+                    const k = drag * (b.isSolid ? ratio * Config.PLANET_DRAG : 1);
+                    // Gas settles (outward motion is damped) but can still fall freely towards the star
+                    let vr2 = vr * (1 - (b.isSolid || vr > 0 ? k : k * Config.INFALL_DAMPING));
+                    let vt2 = vt * (1 - k * (b.isSolid ? Config.HEADWIND : Config.GAS_HEADWIND));
 
                     // Planets embedded in the disk (and moonlets in a planet's disk) have their orbits
                     // rounded off by the gas, so they don't plunge in on long, thin orbits
-                    if (anchorOnCore && b.mass >= (h ? Config.MASS_ASTEROID : Config.MASS_PLANET)) {
+                    if (anchorOnCore && b.isSolid && (h || b.mass >= Config.MASS_PLANET)) {
                         const kc = circularize;
-                        const vc = Math.sqrt((Config.G * frame.mass) / r) * (vt >= 0 ? 1 : -1);
+                        const vc = Math.sqrt((Config.G * (h ? h.mass : massInside(r))) / r) * (vt >= 0 ? 1 : -1);
                         vr2 = vr * (1 - kc);
                         vt2 = vt + (vc - vt) * kc;
                     }
@@ -904,59 +1378,49 @@
                 }
             }
 
-            // The young star's wind pushes the remaining gas outwards, fading over time
+            // Once lit, the young star's light heats the leftover nebula until it escapes
+            // (photoevaporation): the disk thins out gradually, closest to the star first
             if (star) {
                 const w = Config.WIND_STRENGTH * Math.exp(-(stepCount - ignitionStep) / Config.WIND_DECAY_STEPS) * (star.mass / 500);
                 if (w > 0.01) {
                     for (const b of bodies) {
-                        if (b.mass >= Config.MASS_ASTEROID || b === star) continue;
-                        const rx = b.x - star.x, ry = b.y - star.y;
-                        const r = Math.sqrt(rx * rx + ry * ry) || 1;
-                        const a = (w / (r + 40)) * dt;
-                        b.vx += (rx / r) * a;
-                        b.vy += (ry / r) * a;
+                        if (b.isSolid || b === star || b.dead) continue;
+                        const r = Math.hypot(b.x - star.x, b.y - star.y);
+                        const keep = 1 - Math.min(0.5, (Config.EVAPORATION * w * dt) / (1 + r / 100));
+                        b.rock *= keep;
+                        b.ice *= keep;
+                        b.gas *= keep;
+                        b.updateProperties();
+                        if (b.mass < 0.02) b.dead = true;
                     }
                 }
             }
 
-            // Pairwise gravity with merging on contact
-            const n = bodies.length;
-            const G = Config.G, soft = Config.SOFTENING;
+            // Icy bodies that drift inside the frost line lose their ice to sublimation, and the
+            // vapour rejoins the nebula. Big bodies lose it more slowly (less surface per mass).
+            if (stepCount % 5 === 0) {
+                for (let i = 0, n = bodies.length; i < n; i++) {
+                    const b = bodies[i];
+                    if (!b.isSolid || b.dead || b.locked || b === star || b.ice <= 0 || beyondFrost(b)) continue;
+                    const rate = Math.min(1, Config.SUBLIMATION * 5 * Math.min(1, Config.MASS_ASTEROID / b.mass));
+                    const lost = b.ice * rate;
+                    b.ice -= lost;
+                    b.vapour = (b.vapour || 0) + lost;
+                    if (b.vapour > 0.3) {
+                        bodies.push(new Body(b.x, b.y, b.vx, b.vy, 0, b.vapour, 0));
+                        b.vapour = 0;
+                    }
+                    b.updateProperties();
+                }
+            }
+
+            // Collisions, then gravity
             const core = hasCore ? heaviest : null;
-            const capture = core ? core.radius * Config.CORE_CAPTURE : 0;
-            for (let i = 0; i < n; i++) {
-                const a = bodies[i];
-                if (a.dead || a.locked) continue;
-                for (let j = i + 1; j < n; j++) {
-                    const b = bodies[j];
-                    if (b.dead || b.locked) continue;
-                    const dx = b.x - a.x, dy = b.y - a.y;
-                    const dSq = dx * dx + dy * dy;
-                    let rr = a.radius + b.radius;
-                    if ((a === core && b.mass < Config.MASS_ASTEROID) || (b === core && a.mass < Config.MASS_ASTEROID)) rr = capture;
-                    else if (a.mass < Config.MASS_ASTEROID && b.mass < Config.MASS_ASTEROID) rr *= Config.GAS_STICK;
-                    else if (a.mass >= Config.MASS_PLANET && b.mass >= Config.MASS_PLANET) rr *= Config.SOLID_HIT;
-                    if (dSq < rr * rr) {
-                        const big = a.mass >= b.mass ? a : b, small = big === a ? b : a;
-                        const spin = small.mass >= Config.IMPACT_MIN_MASS && big !== core && big !== star
-                            ? glancingImpact(a, b, dx, dy) : 0;
-                        const impactor = small.mass;
-                        big.merge(small);
-                        if (spin) spawnDebris(big, impactor, spin);
-                        if (big === a) continue;
-                        break;
-                    }
-                    const f = (G * dt) / ((dSq + soft) * Math.sqrt(dSq + 1e-6));
-                    a.vx += dx * f * b.mass;
-                    a.vy += dy * f * b.mass;
-                    b.vx -= dx * f * a.mass;
-                    b.vy -= dy * f * a.mass;
-                }
-            }
+            processCollisions(core, core ? core.radius * Config.CORE_CAPTURE : 0);
+            applyGravity(dt);
 
-            // Move, drop merged or escaped bodies, record trails
+            // Move, drop merged or escaped bodies
             const escapeSq = Math.pow(Config.CLOUD_RADIUS * 25, 2);
-            const recordTrail = stepCount % 3 === 0;
             let w = 0;
             for (const b of bodies) {
                 if (b.dead) continue;
@@ -976,8 +1440,10 @@
             bodies.length = w;
             moveMoons(dt);
 
-            for (const b of bodies) {
-                if (recordTrail && b.mass >= Config.MASS_ASTEROID && b !== star) {
+            // Trails (moons' trails are kept relative to their planet)
+            if (stepCount % 3 === 0) {
+                for (const b of bodies) {
+                    if (!b.isSolid || b === star) continue;
                     const h = b.moonOf && !b.moonOf.dead ? b.moonOf : null;
                     if (h !== b.trailHost) {
                         b.trail = [];
@@ -988,6 +1454,7 @@
                     if (b.trail.length > (h ? 90 : 160)) b.trail.splice(0, 2);
                 }
             }
+
             heaviest = null;
             for (const b of bodies) if (!heaviest || b.mass > heaviest.mass) heaviest = b;
             coreBody = star || (heaviest && heaviest.mass >= Config.PROTOSTAR_FRACTION * totalMass ? heaviest : null);
@@ -1053,7 +1520,7 @@
                 if (star) {
                     p = Config.CLOUD_RADIUS * 0.4;
                     for (const b of bodies) {
-                        if (b === star || b.mass < Config.MASS_PLANET) continue;
+                        if (b === star || !b.isSolid || b.mass < Config.MASS_PLANET) continue;
                         const dist = Math.hypot(b.x - cam.x, b.y - cam.y);
                         if (dist < Config.CLOUD_RADIUS * 6) p = Math.max(p, dist * 1.1);
                     }
@@ -1159,7 +1626,7 @@
 
             // Tiny bodies: a dot is enough
             if (r * cam.scale < 1.5) {
-                ctx.fillStyle = b.type === 'gas_giant' ? b.palette[0] : b.type === 'planet' ? b.rocky : '#9ca3af';
+                ctx.fillStyle = bodyColor(b);
                 const s = 1.5 / cam.scale;
                 ctx.fillRect(b.x - s / 2, b.y - s / 2, s, s);
                 return;
@@ -1170,8 +1637,10 @@
             ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
             ctx.clip();
 
-            if (b.type === 'gas_giant') {
-                ctx.fillStyle = b.palette[0];
+            // Gas giants and big ice giants show cloud bands
+            const palette = b.type === 'gas_giant' ? b.gasPalette : b.type === 'ice_giant' ? b.icePalette : null;
+            if (palette) {
+                ctx.fillStyle = palette[0];
                 ctx.fillRect(b.x - r, b.y - r, r * 2, r * 2);
                 ctx.translate(b.x, b.y);
                 ctx.rotate(b.tilt);
@@ -1179,7 +1648,7 @@
                 for (let k = 0; k < bands; k++) {
                     const h = (2 * r) / bands;
                     const wobble = 0.55 + 0.45 * Math.sin(k * 1.7 + b.bandSeed);
-                    ctx.fillStyle = b.palette[1 + (k % 2)];
+                    ctx.fillStyle = palette[1 + (k % 2)];
                     ctx.globalAlpha = 0.75;
                     ctx.fillRect(-r, -r + k * h, r * 2, h * wobble);
                 }
@@ -1187,7 +1656,7 @@
                 ctx.setTransform(1, 0, 0, 1, 0, 0);
                 applyWorldTransform();
             } else {
-                ctx.fillStyle = b.type === 'planet' ? b.rocky : '#8b8f96';
+                ctx.fillStyle = bodyColor(b);
                 ctx.fillRect(b.x - r, b.y - r, r * 2, r * 2);
             }
             shade(b.x, b.y, r, lx, ly, strength);
@@ -1225,8 +1694,8 @@
             ctx.globalCompositeOperation = 'lighter';
             const gasAlpha = star ? 0.1 : 0.1;
             for (const b of bodies) {
-                if (b.mass >= Config.MASS_ASTEROID) continue;
-                const size = 16 + b.mass * 6;
+                if (b.isSolid || b === star) continue;
+                const size = 16 + Math.min(b.mass, 6) * 6;
                 if (!inView(b.x, b.y, size)) continue;
                 const dx = b.x - cx, dy = b.y - cy;
                 const t = Math.sqrt(dx * dx + dy * dy) / (R * 1.1);
@@ -1238,8 +1707,26 @@
             ctx.fillStyle = '#dbeafe';
             const px = 1.1 / cam.scale;
             for (const b of bodies) {
-                if (b.mass >= Config.MASS_ASTEROID || !inView(b.x, b.y, 0)) continue;
+                if (b.isSolid || b === star || !inView(b.x, b.y, 0)) continue;
                 ctx.fillRect(b.x - px / 2, b.y - px / 2, px, px);
+            }
+
+            // Frost line: a faint dashed ring around the core
+            if (showFrost && frostR > 0 && coreBody) {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.globalAlpha = 0.45;
+                ctx.strokeStyle = 'rgb(150,210,255)';
+                ctx.lineWidth = 1.2 / cam.scale;
+                ctx.setLineDash([8 / cam.scale, 7 / cam.scale]);
+                ctx.beginPath();
+                ctx.arc(frostCentre.x, frostCentre.y, frostR, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = 'rgb(170,220,255)';
+                ctx.font = `${11 / cam.scale}px ui-sans-serif, system-ui, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.fillText('frost line', frostCentre.x, frostCentre.y - frostR - 5 / cam.scale);
+                ctx.globalCompositeOperation = 'lighter';
             }
 
             // Orbit trails
@@ -1251,7 +1738,7 @@
                 const h = b.trailHost;
                 if (h && h.dead) continue;
                 const ox = h ? h.x : 0, oy = h ? h.y : 0;
-                ctx.strokeStyle = h ? '#cbd5e1' : b.type === 'gas_giant' ? b.palette[0] : b.type === 'planet' ? b.rocky : '#6b7280';
+                ctx.strokeStyle = h ? '#cbd5e1' : b.type === 'asteroid' ? '#6b7280' : bodyColor(b);
                 ctx.globalAlpha = h ? 0.4 : b.type === 'asteroid' ? 0.12 : 0.28;
                 ctx.beginPath();
                 ctx.moveTo(b.trail[0] + ox, b.trail[1] + oy);
@@ -1284,7 +1771,7 @@
             ctx.globalCompositeOperation = 'source-over';
             ctx.globalAlpha = 1;
             for (const b of bodies) {
-                if (b.mass < Config.MASS_ASTEROID || b === star || b === core) continue;
+                if (!b.isSolid || b === star || b === core) continue;
                 const r = Math.max(b.radius, 0.8 / cam.scale);
                 if (!inView(b.x, b.y, r)) continue;
                 drawSolidBody(b, r, light);
@@ -1417,8 +1904,8 @@
             let planets = 0, moons = 0, gasMass = 0;
             for (const b of bodies) {
                 if (b.locked) moons++;
-                else if (b.mass >= Config.MASS_PLANET && b !== star) planets++;
-                if (b.mass < Config.MASS_ASTEROID && Math.hypot(b.x - anchor.x, b.y - anchor.y) < Config.CLOUD_RADIUS * 2) gasMass += b.mass;
+                else if (b.isSolid && b.mass >= Config.MASS_PLANET && b !== star) planets++;
+                if (!b.isSolid && b !== star && Math.hypot(b.x - anchor.x, b.y - anchor.y) < Config.CLOUD_RADIUS * 2) gasMass += b.mass;
             }
             ui.bodies.textContent = bodies.length;
             ui.time.textContent = (stepCount * Config.MYR_PER_STEP).toFixed(2);
@@ -1441,6 +1928,35 @@
             else if (coreBody) phase = '● Protostar accreting';
             else phase = '○ Collapsing cloud';
             ui.phase.textContent = phase;
+            updateSystemList();
+        }
+
+        // Planets sorted by distance, in AU scaled so the frost line sits at 2.7 AU like the Sun's
+        const TYPE_NAMES = { planet: 'Rocky', icy: 'Ice world', ice_giant: 'Ice giant', gas_giant: 'Gas giant' };
+        function updateSystemList() {
+            const centre = coreBody || anchor;
+            const moonsOf = new Map();
+            for (const b of bodies) if (b.locked) moonsOf.set(b.moonOf, (moonsOf.get(b.moonOf) || 0) + 1);
+            const list = bodies
+                .filter((b) => b.isSolid && !b.locked && b !== star && b !== coreBody && b.mass >= Config.MASS_PLANET)
+                .map((b) => ({ b, d: Math.hypot(b.x - centre.x, b.y - centre.y) }))
+                .filter((e) => e.d < Config.CLOUD_RADIUS * 6)
+                .sort((e1, e2) => e1.d - e2.d)
+                .slice(0, 12);
+            if (!list.length) {
+                ui.system.innerHTML = '<li class="note">No planets yet</li>';
+                return;
+            }
+            ui.system.innerHTML = list.map(({ b, d }) => {
+                let name = TYPE_NAMES[b.type] || 'Planet';
+                if (b.type === 'ice_giant' && b.mass < 30) name = 'Mini-Neptune';
+                const moons = moonsOf.get(b) || 0;
+                const au = frostR > 0 ? (d / frostR) * 2.7 : 0;
+                return `<li><span class="dot" style="background:${bodyColor(b)}"></span>` +
+                    `<span>${name}${moons ? ` <span class="mono">☾${moons}</span>` : ''}</span>` +
+                    `<span class="mono">${au.toFixed(1)} AU</span>` +
+                    `<span class="mono">${Math.round(b.mass)} M⊕</span></li>`;
+            }).join('');
         }
 
         // ------------------------------------------------------------------
@@ -1498,6 +2014,13 @@
         bindSlider('gSlider', 'gVal', (v) => { Config.G = v; }, (v) => v.toFixed(1));
         bindSlider('spinSlider', 'spinVal', (v) => { Config.SPIN_MULTIPLIER = v; }, (v) => v.toFixed(2));
         bindSlider('dragSlider', 'dragVal', (v) => { Config.DRAG = v; }, (v) => v.toFixed(1) + '×');
+
+        let showFrost = true;
+        document.getElementById('frostToggle').addEventListener('change', (e) => { showFrost = e.target.checked; });
+        document.getElementById('particleSelect').addEventListener('change', (e) => {
+            Config.PARTICLES = e.target.value === 'auto' ? 'auto' : parseInt(e.target.value, 10);
+        });
+        document.getElementById('engine').textContent = GpuGravity.ok ? 'GPU gravity (WebGL2)' : 'CPU gravity';
 
         const panel = document.getElementById('panel');
         const panelToggle = document.getElementById('panelToggle');
@@ -1570,7 +2093,7 @@
                 vx = centre.vx - (ry / r) * v;
                 vy = centre.vy + (rx / r) * v;
             }
-            bodies.push(new Body(s.x, s.y, vx, vy, Config.MASS_PLANET * 2));
+            bodies.push(new Body(s.x, s.y, vx, vy, Config.MASS_PLANET * 2, 0, 0, true));
             aim = null;
         };
         canvas.addEventListener('pointerup', endPointer);
