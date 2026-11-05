@@ -424,7 +424,7 @@
         <button id="btnSpawnDisk" class="btn btn-indigo">Inject Gas Cloud</button>
 
         <div id="system" class="system">
-            <h3>Planets <span class="note">(distance scaled so the frost line is at 2.7 AU, like the Sun's)</span></h3>
+            <h3>Planets <span class="note">(the frost line is 2.7 AU for a Sun-like star)</span></h3>
             <ul id="systemList"><li class="note">No planets yet</li></ul>
         </div>
 
@@ -469,7 +469,7 @@
             // Mass thresholds (solid mass for planetesimals)
             MASS_ASTEROID: 1.5,
             PEBBLE_DRIFT: 0.0006,    // Share of a parcel's dust that drifts one ring inwards per step
-            ISOLATION_MASS: 10,      // Earth masses that stop pebbles at the frost line (less closer in, more further out)
+            ISOLATION_MASS: 20,      // Earth masses at H/r = 0.05 (Lambrechts et al. 2014); the scaling with distance is below
             DRIFT_BIN: 16,           // Width of those rings
             DUST_GROWTH: 120,        // ...and the cell grows by its own width for every this much distance from the core
             DUST_CELL: 24,           // Dust within a cell this wide gathers into one planetesimal
@@ -561,6 +561,8 @@
             MYR_PER_STEP: 0.0003,       // Clock before the star lights (collapse takes a fraction of a Myr)
             MYR_PER_STEP_LIT: 0.003     // ...and after (the gas disk lasts a few Myr, planets finish in tens)
         };
+
+        const AU = (Config.FROST_RADIUS * Config.CLOUD_RADIUS) / 2.7;   // world units per AU (Sun-like frost line = 2.7 AU)
 
         const canvas = document.getElementById('simCanvas');
         const ctx = canvas.getContext('2d', { alpha: false });
@@ -891,7 +893,10 @@
             for (const b of bodies) {
                 if (!b.isSolid || b.dead || b.locked || b === star || b === coreBody) continue;
                 const r = Math.hypot(b.x - c.x, b.y - c.y);
-                if (b.mass >= Config.ISOLATION_MASS * Math.sqrt(Math.max(0.2, r / Math.max(frostR, 1)))) walls.push(r);
+                // Lambrechts et al. 2014: M_iso = 20 Earth masses x ((H/r) / 0.05)^3, with the passive-disk
+                // aspect ratio H/r = 0.033 (r / 1 AU)^(1/4) (Chiang & Goldreich 1997; from memory)
+                const h = 0.033 * Math.pow(Math.max(r, 1) / AU, 0.25);
+                if (b.mass >= Config.ISOLATION_MASS * Math.pow(h / 0.05, 3)) walls.push(r);
             }
             for (const [k, list] of driftBins) {
                 if ((k + 0.5) * bin < cavity * 1.2) continue;
@@ -935,16 +940,19 @@
             moonAnnounced = false;
             frostR = 0;
             // Dust-rich clouds build giants; dust-poor ones build only rocky planets and small cores
-            const rnd = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;   // about -1..1, bell-shaped
-            Config.dustFactor = Config.VARY ? Math.exp(rnd() * 1.1) : 1;       // 0.33x to 3x
-            Config.frostFactor = Config.VARY ? Math.exp(rnd() * 0.3) : 1;     // 0.74x to 1.35x
+            // Dust scales with the star's metallicity, 10^[Fe/H] (relative to the Sun). Sun-like stars in the
+            // solar neighbourhood span roughly [Fe/H] = -0.05 +/- 0.2 dex (approximate; from memory, not checked)
+            const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+            Config.feh = Config.VARY ? Math.max(-0.6, Math.min(0.5, -0.05 + 0.2 * gauss())) : 0;
+            Config.dustFactor = Math.pow(10, Config.feh);
+            Config.frostFactor = Config.VARY ? Math.exp(Math.max(-1, Math.min(1, gauss())) * 0.15) : 1;   // star's brightness
             cam.x = 0;
             cam.y = 0;
             cam.fitExtent = Config.CLOUD_RADIUS;
             cam.scale = targetScale();
             ui.toast.classList.remove('show');
             document.getElementById('cloudNote').textContent = Config.VARY
-                ? `This cloud: ${Config.dustFactor.toFixed(1)}x the usual dust, frost line at ${(2.7 * Config.frostFactor).toFixed(1)} AU`
+                ? `This cloud: [Fe/H] ${Config.feh >= 0 ? '+' : ''}${Config.feh.toFixed(2)} (${Config.dustFactor.toFixed(1)}x the Sun's dust), frost line at ${(2.7 * Config.frostFactor).toFixed(1)} AU`
                 : '';
 
             const count = particleCount();
@@ -2257,7 +2265,8 @@
             updateSystemList();
         }
 
-        // Planets sorted by distance, in AU scaled so the frost line sits at 2.7 AU like the Sun's
+        // Planets sorted by distance. One AU is fixed so that the Sun's frost line (2.7 AU; Hayashi 1981)
+        // is at FROST_RADIUS; a brighter star pushes the frost line out, in AU
         const TYPE_NAMES = { planet: 'Rocky', icy: 'Ice world', ice_giant: 'Ice giant', gas_giant: 'Gas giant' };
         function updateSystemList() {
             const centre = coreBody || anchor;
@@ -2277,7 +2286,7 @@
                 let name = TYPE_NAMES[b.type] || 'Planet';
                 if (b.type === 'ice_giant' && b.mass < 30) name = 'Mini-Neptune';
                 const moons = moonsOf.get(b) || 0;
-                const au = frostR > 0 ? (d / frostR) * 2.7 : 0;
+                const au = d / AU;
                 return `<li><span class="dot" style="background:${bodyColor(b)}"></span>` +
                     `<span>${name}${moons ? ` <span class="mono">☾${moons}</span>` : ''}</span>` +
                     `<span class="mono">${au.toFixed(1)} AU</span>` +
