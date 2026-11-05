@@ -521,6 +521,8 @@
             ISOLATION_MASS: 20,      // Earth masses at H/r = 0.05 (Lambrechts et al. 2014); the scaling with distance is below
             DRIFT_BIN: 16,           // Width of those rings
             COLD_BIRTH: false,       // Planetesimals are born on near-circular orbits (see formPlanetesimals)
+            DUST_CELL_INNER: 0,      // If set, dust inside 1 AU gathers over a patch this wide (more, lighter seeds). Tested at 12 with merge reach
+                                     // 10 and 6 (6 runs each): no more multi-planet systems than the default, so it stays off
             DUST_GROWTH: 120,        // ...and the cell grows by its own width for every this much distance from the core
             DUST_CELL: 24,           // Dust within a cell this wide gathers into one planetesimal
             PLANETESIMAL_MASS: 0.5,  // Condensed solids needed for a nebula parcel to become a planetesimal
@@ -902,7 +904,7 @@
                 // Further out the disk is thin and orbits are wide, so dust is gathered from a wider
                 // patch there: fewer, bigger seeds instead of a ring of tiny ones
                 const r = Math.hypot(b.x - cx, b.y - cy);
-                const cell = Math.round(Config.DUST_CELL * (1 + r / Config.DUST_GROWTH) / 12) * 12;
+                const cell = r < AU && Config.DUST_CELL_INNER ? Config.DUST_CELL_INNER : Math.round(Config.DUST_CELL * (1 + r / Config.DUST_GROWTH) / 12) * 12;
                 const key = cell * 1e9 + (Math.floor(b.x / cell) + 32768) * 65536 + (Math.floor(b.y / cell) + 32768);
                 let c = dustCells.get(key);
                 if (!c) dustCells.set(key, c = { sol: 0, list: [] });
