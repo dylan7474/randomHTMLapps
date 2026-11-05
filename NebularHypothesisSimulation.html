@@ -546,6 +546,10 @@
             STIR: 0.006,             // ...and get nudged by this fraction of their speed until they scatter or merge
             SETTLE_STEPS: 1500,      // The system counts as settled after the gas is gone and no planet has merged or been lost for this long
             HILL_LATE: 3.0,          // ...shrinking to this once the gas disk has gone (finished systems stay spaced out)
+            HILL_LATE_INNER: 3.0,    // ...and inside 1 AU. Tested 3 / 8 / 10 (6, 6 and 12 runs): 3 keeps multi-planet inner systems (4 of 6) with
+                                     // spacing median ~9; 8 widens it (~14) but only 2 of 6 stay multiple; 10 (Pu & Wu 2015: ~10 mutual Hill radii
+                                     // to survive 1 Gyr) leaves single 6-63 Earth-mass planets in all 12 runs, because merging, not ejection,
+                                     // prunes the chain and too few seeds form to begin with
             HILL_LATE_OUTER: 5.0,    // ...but beyond the frost line, where growth is slow, it stays wider
             HILL_MERGE: 6.0,         // Solid bodies merge when closer than this many mutual Hill radii
             MAX_CONTACT: 70,         // ...but never from further apart than this
@@ -1522,7 +1526,7 @@
             const c = coreBody || star;
             if (c && a.isSolid && b.isSolid) {
                 const r = Math.hypot((a.x + b.x) / 2 - c.x, (a.y + b.y) / 2 - c.y);
-                const late = r < frostR ? Config.HILL_LATE : Config.HILL_LATE_OUTER;
+                const late = r < AU ? Config.HILL_LATE_INNER : r < frostR ? Config.HILL_LATE : Config.HILL_LATE_OUTER;
                 const hill = (late + (Config.HILL_MERGE - late) * diskStrength()) * r * Math.cbrt((a.mass + b.mass) / (3 * c.mass));
                 d = Math.max(d, Math.min(hill, Config.MAX_CONTACT));
             }
