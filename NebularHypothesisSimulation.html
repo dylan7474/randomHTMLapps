@@ -468,6 +468,8 @@
 
             // Mass thresholds (solid mass for planetesimals)
             MASS_ASTEROID: 1.5,
+            PEBBLE_DRIFT: 0.0006,    // Share of a parcel's dust that drifts one ring inwards per step
+            DRIFT_BIN: 16,           // Width of those rings
             DUST_GROWTH: 120,        // ...and the cell grows by its own width for every this much distance from the core
             DUST_CELL: 24,           // Dust within a cell this wide gathers into one planetesimal
             PLANETESIMAL_MASS: 0.5,  // Condensed solids needed for a nebula parcel to become a planetesimal
@@ -485,7 +487,7 @@
             // stop at the disk's inner edge, where the star's magnetic field clears the gas
             MIGRATION: 0.15,         // How far below circular speed (fraction) a 10 Earth-mass planet is dragged
             GAP_MASS: 100,           // Planets heavier than this migrate more slowly
-            CAVITY: 0.12,            // Inner edge of the disk, as a fraction of the cloud's radius
+            CAVITY: 0.07,            // Inner edge of the disk, as a fraction of the cloud's radius
             // Hot planets lose their gas envelopes to the star's light, small ones fastest
             ENVELOPE_LOSS: 0.004,
             STABLE_SPACING: 2.5,     // Planets closer than this many mutual Hill radii are unstable...
@@ -494,6 +496,7 @@
             MAX_CONTACT: 70,         // ...but never from further apart than this
             GAS_GRAVITY: 0.15,       // How hard gas lumps pull once a protostar exists (1 = full weight)
             CORE_ZONE: 0.15,         // Gas this close to the cloud's centre (fraction of its radius) collapses into one body
+            CORE_SIZE: 0.4,          // The core's physical size relative to how big it is drawn
             CORE_CAPTURE: 4,         // The core sweeps up gas within this many of its radii
             SOLID_HIT: 0.5,          // Contact distance multiplier for the star and moons
             PLANET_HIT: 0.4,         // ...and between a planet and another solid body. Planets are drawn
@@ -745,7 +748,10 @@
                 }
                 // Gas and the star are drawn at their old size, whatever the mass scale
                 const m = !this.isSolid || this === star ? this.mass / Config.MASS_SCALE : this.mass;
-                this.radius = Math.max(1.2, Math.pow((m / density) * 10, 1 / 3));
+                this.visRadius = Math.max(1.2, Math.pow((m / density) * 10, 1 / 3));
+                // A real star is tiny compared with its planets' orbits, so the core only sweeps up what
+                // passes very close to it, but it is still drawn big enough to see
+                this.radius = !this.isSolid && m > 200 ? this.visRadius * Config.CORE_SIZE : this.visRadius;
             }
 
             // Absorb the whole of another body, conserving momentum
@@ -853,6 +859,43 @@
                 }
                 const m = rock + ice;
                 bodies.push(new Body(x / m, y / m, vx / m, vy / m, rock, ice, 0, true));
+            }
+        }
+
+        // Pebble drift: dust grains lose speed to the gas and spiral inwards much faster than the gas
+        // itself. Each pass, a share of every parcel's rock and ice moves to a parcel further in.
+        // Ice that crosses the frost line evaporates (it stays behind as vapour), rock carries on
+        // until the disk's inner edge, where pebbles pile up and build the inner planets.
+        const driftBins = new Map();
+        function driftPebbles() {
+            driftBins.clear();
+            const c = coreBody || anchor;
+            const bin = Config.DRIFT_BIN;
+            for (const b of bodies) {
+                if (b.isSolid || b.dead || b.locked || b === coreBody || b === star) continue;
+                const k = Math.floor(Math.hypot(b.x - c.x, b.y - c.y) / bin);
+                let l = driftBins.get(k);
+                if (!l) driftBins.set(k, l = []);
+                l.push(b);
+            }
+            const cavity = Config.CAVITY * Config.CLOUD_RADIUS;
+            const frac = Math.min(0.5, Config.PEBBLE_DRIFT * 5 * diskStrength());
+            for (const [k, list] of driftBins) {
+                if ((k + 0.5) * bin < cavity * 1.2) continue;
+                // The nearest populated ring further in
+                let inner = null;
+                for (let j = k - 1; j >= Math.max(0, k - 3) && !inner; j--) inner = driftBins.get(j) || null;
+                if (!inner) continue;
+                for (const b of list) {
+                    const rock = b.rock * frac;
+                    const ice = beyondFrost(b) ? b.ice * frac : 0;
+                    if (rock + ice < 1e-6) continue;
+                    const t = inner[Math.floor(Math.random() * inner.length)];
+                    b.rock -= rock; b.ice -= ice;
+                    t.rock += rock; t.ice += ice;
+                    b.updateProperties();
+                    t.updateProperties();
+                }
             }
         }
 
@@ -1623,6 +1666,7 @@
 
             // Collisions, then gravity
             const core = hasCore ? heaviest : null;
+            if (anchorOnCore && stepCount % 5 === 0) driftPebbles();
             if (stepCount % 10 === 0) formPlanetesimals();
             processCollisions(core, core ? core.radius * Config.CORE_CAPTURE : 0);
             applyGravity(dt);
@@ -2012,7 +2056,7 @@
             if (star) {
                 const col = starColor(star.mass);
                 const pulse = 1 + 0.03 * Math.sin(time * 2.3);
-                const r = star.radius * 1.4 * pulse;
+                const r = (star.visRadius || star.radius) * 1.4 * pulse;
                 ctx.globalAlpha = 0.5;
                 ctx.drawImage(glowSprite(col, 'sharp'), star.x - r * 22, star.y - r * 22, r * 44, r * 44);
                 ctx.globalAlpha = 0.9;
@@ -2021,7 +2065,7 @@
             } else if (core) {
                 const flicker = 0.85 + 0.15 * Math.sin(time * 7) * Math.sin(time * 3.1);
                 const frac = Math.min(1, core.mass / (Config.STAR_FRACTION * totalMass));
-                const r = core.radius * (1.5 + frac);
+                const r = (core.visRadius || core.radius) * (1.5 + frac);
                 ctx.globalAlpha = (0.35 + 0.45 * frac) * flicker;
                 ctx.drawImage(glowSprite([255, 70 + 90 * frac | 0, 40]), core.x - r * 6, core.y - r * 6, r * 12, r * 12);
                 light = { x: core.x, y: core.y, strength: 0.3 + 0.4 * frac };
@@ -2042,7 +2086,7 @@
             // Protostar or star core
             if (star) {
                 const col = starColor(star.mass);
-                const r = star.radius * 1.4 * (1 + 0.03 * Math.sin(time * 2.3));
+                const r = (star.visRadius || star.radius) * 1.4 * (1 + 0.03 * Math.sin(time * 2.3));
                 const grad = ctx.createRadialGradient(star.x, star.y, 0, star.x, star.y, r);
                 grad.addColorStop(0, '#ffffff');
                 grad.addColorStop(0.6, `rgb(${col.join(',')})`);
@@ -2071,7 +2115,7 @@
                 ctx.globalCompositeOperation = 'source-over';
             } else if (core) {
                 const frac = Math.min(1, core.mass / (Config.STAR_FRACTION * totalMass));
-                const r = Math.max(core.radius, 1.5 / cam.scale);
+                const r = Math.max((core.visRadius || core.radius), 1.5 / cam.scale);
                 const grad = ctx.createRadialGradient(core.x, core.y, 0, core.x, core.y, r);
                 grad.addColorStop(0, `rgb(255,${140 + 90 * frac | 0},${80 + 60 * frac | 0})`);
                 grad.addColorStop(1, 'rgb(150,30,20)');
