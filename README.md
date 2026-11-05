@@ -2,6 +2,8 @@
 
 A compendium of standalone browser apps built as single-file HTML experiences (HTML + CSS + JavaScript, no build step). Most are retro-inspired games, but there are also interactive simulations, audio tools, and creative utilities.
 
+**Live site:** https://dylan7474.github.io/randomHTMLapps/ (an index of all the apps, served by GitHub Pages)
+
 ## Quick start
 
 - Clone/download this repo.
@@ -104,7 +106,7 @@ All HTML files in this repository were manually re-checked against this README i
 
 ## Suggested future improvements
 
-- Add a simple launcher/index page with thumbnails and tags (game, simulation, speech, audio).
+- Add thumbnails and tags to the launcher/index page (`index.html`, which already lists every app by category with search).
 - Normalize naming conventions (e.g., align file names with app titles).
 - Add per-app mini docs (controls, browser support, known issues).
 - Add license and attribution details for third-party libraries/assets.
