@@ -277,6 +277,17 @@
             font-size: 11px;
         }
 
+        .system li.pcard, .system li.starcard {
+            grid-template-columns: 14px 1fr;
+            align-items: start;
+            padding: 5px 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .system li.pcard .dot, .system li.starcard .dot { margin-top: 3px; }
+        .system li.pcard .mono { display: inline; }
+        .system li.pcard .pstats { display: block; line-height: 1.5; margin-top: 1px; }
+
         .legend h3 {
             font-size: 12px;
             font-weight: 600;
@@ -411,6 +422,7 @@
             <p class="note">More particles is smoother and more realistic; applies when the cloud restarts</p>
 
             <label class="check"><input type="checkbox" id="frostToggle" checked> Show frost line</label>
+            <label class="check"><input type="checkbox" id="namesToggle" checked> Show planet names</label>
             <label class="check"><input type="checkbox" id="varyToggle" checked> Every cloud different</label>
             <p class="note" id="cloudNote"></p>
         </div>
@@ -493,6 +505,7 @@
             ENVELOPE_LOSS: 0.004,
             STABLE_SPACING: 2.5,     // Planets closer than this many mutual Hill radii are unstable...
             STIR: 0.006,             // ...and get nudged by this fraction of their speed until they scatter or merge
+            SETTLE_STEPS: 1500,      // The system counts as settled after the gas is gone and no planet has merged or been lost for this long
             HILL_LATE: 3.0,          // ...shrinking to this once the gas disk has gone (finished systems stay spaced out)
             HILL_LATE_OUTER: 5.0,    // ...but beyond the frost line, where growth is slow, it stays wider
             HILL_MERGE: 6.0,         // Solid bodies merge when closer than this many mutual Hill radii
@@ -581,6 +594,10 @@
         let impactCount = 0;      // giant impacts that threw debris into orbit
         let hitRunCount = 0;      // glancing hits where the smaller planet bounced off
         let moonAnnounced = false;
+        let settled = false;      // the system has stopped changing: planets are named and described
+        let lastPlanetCount = -1, lastPlanetChange = 0;
+        let starName = '';
+        const usedNames = new Set();
         let isPaused = false;
         let nextId = 1;
 
@@ -938,6 +955,11 @@
             impactCount = 0;
             hitRunCount = 0;
             moonAnnounced = false;
+            settled = false;
+            lastPlanetCount = -1;
+            lastPlanetChange = 0;
+            starName = '';
+            usedNames.clear();
             frostR = 0;
             // Dust-rich clouds build giants; dust-poor ones build only rocky planets and small cores
             // Dust scales with the star's metallicity, 10^[Fe/H] (relative to the Sun). Sun-like stars in the
@@ -1680,6 +1702,7 @@
             // A hot planet's light-weight gas envelope is blown off by the star (why there are
             // few hot Neptunes); heavy giants hold on to theirs
             if (star && stepCount % 40 === 0) stirCrowdedOrbits();
+            if (star && stepCount % 30 === 0) checkSettled();
             if (stepCount % 5 === 0 && star) {
                 for (const b of bodies) {
                     if (!b.isSolid || b.dead || b.locked || b === star || b.gas <= 0) continue;
@@ -1767,6 +1790,107 @@
                 const k = (Math.random() - 0.5) * 2 * Config.STIR;
                 small.vx += (small.vx - star.vx) * k;
                 small.vy += (small.vy - star.vy) * k;
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Once the system has settled: random names and a description of each planet
+        // ------------------------------------------------------------------
+        const NAME_START = ['Al', 'Bel', 'Cal', 'Dar', 'El', 'Fen', 'Gal', 'Hes', 'Ith', 'Jar', 'Kor', 'Lun', 'Mer', 'Nor', 'Ob', 'Pel', 'Quil', 'Ren', 'Sol', 'Tav', 'Ul', 'Ven', 'Wyn', 'Xan', 'Yor', 'Zel'];
+        const NAME_MID = ['a', 'e', 'i', 'o', 'ar', 'en', 'ir', 'on', 'ae', 'u'];
+        const NAME_END = ['dra', 'ria', 'mos', 'lis', 'thos', 'nix', 'vane', 'ron', 'sia', 'tus', 'mir', 'lune'];
+        function randomName() {
+            const pick = (a) => a[Math.floor(Math.random() * a.length)];
+            for (let i = 0; i < 50; i++) {
+                const n = pick(NAME_START) + (Math.random() < 0.5 ? pick(NAME_MID) : '') + pick(NAME_END);
+                if (!usedNames.has(n)) {
+                    usedNames.add(n);
+                    return n;
+                }
+            }
+            return 'Planet ' + (usedNames.size + 1);
+        }
+
+        // Planets bound to the star
+        function boundPlanets() {
+            if (!star) return [];
+            const out = [];
+            for (const b of bodies) {
+                if (!b.isSolid || b.locked || b.dead || b === star || b.mass < Config.MASS_PLANET) continue;
+                const vx = b.vx - star.vx, vy = b.vy - star.vy, r = Math.hypot(b.x - star.x, b.y - star.y);
+                if (0.5 * (vx * vx + vy * vy) < (Config.G * (star.mass + b.mass)) / r) out.push(b);
+            }
+            return out;
+        }
+
+        // The star is about one solar mass; the run ends with the star at roughly 60% of the cloud
+        function solarMasses(m) { return m / (0.62 * Config.TOTAL_MASS); }
+
+        // Radius in Earth radii.
+        // Planets with a real gas envelope: Chen & Kipping 2017 (Forecaster), a broken power law fitted to
+        // observed planets, R = 10^-0.0925 M^0.589 up to ~130 Earth masses, then ~flat (R = 10^1.249 M^-0.044).
+        // It describes planets as they are usually measured (many are hot and puffed up), so a cold giant
+        // can be a little smaller. Below 2 Earth masses it is R = M^0.279.
+        // Planets with (almost) no envelope: Zeng et al. 2016/2019, R = a M^(1/3.7) with a = 1.0 for an
+        // Earth-like mix and 1.24 for 50% water (the water value is from a secondary source; the fits
+        // were made for 1-8 Earth masses, so heavier solid planets are an extrapolation).
+        function planetRadius(b) {
+            const m = b.mass;
+            if (b.gas < 0.02 * m) {
+                const iceFrac = Math.min(0.7, b.ice / Math.max(b.rock + b.ice, 1e-9));
+                return (1 + 0.48 * iceFrac) * Math.pow(m, 1 / 3.7);
+            }
+            if (m < 2.04) return Math.pow(10, 0.00346) * Math.pow(m, 0.279);
+            if (m < 131.6) return Math.pow(10, -0.0925) * Math.pow(m, 0.589);
+            return Math.pow(10, 1.249) * Math.pow(m, -0.044);
+        }
+
+        function describePlanet(b) {
+            const mu = Config.G * (star.mass + b.mass);
+            const rx = b.x - star.x, ry = b.y - star.y, vx = b.vx - star.vx, vy = b.vy - star.vy;
+            const r = Math.hypot(rx, ry);
+            const E = 0.5 * (vx * vx + vy * vy) - mu / r;
+            const a = -mu / (2 * E);
+            const h = rx * vy - ry * vx;
+            const e = Math.sqrt(Math.max(0, 1 + (2 * E * h * h) / (mu * mu)));
+            const aAU = a / AU;
+            const period = Math.sqrt((aAU * aAU * aAU) / solarMasses(star.mass));          // years (Kepler's third law)
+            const L = Config.frostFactor * Config.frostFactor;                              // frost line ~ sqrt(luminosity)
+            const teq = 255 * Math.pow(L, 0.25) / Math.sqrt(aAU);                           // K, albedo 0.3
+            const R = planetRadius(b);
+            const density = 5.51 * b.mass / (R * R * R);                                    // g/cm3
+            let moons = 0;
+            for (const o of bodies) if (o.locked && o.moonOf === b) moons++;
+            const giant = b.type === 'gas_giant';
+            let kind;
+            if (giant) kind = b.mass < 95 ? 'Sub-Saturn' : b.mass < 250 ? 'Saturn-like giant' : 'Jupiter-like giant';
+            else if (b.type === 'ice_giant') kind = b.mass < 30 ? 'Mini-Neptune' : 'Ice giant';
+            else if (b.type === 'icy') kind = b.mass < 10 ? 'Ice world' : 'Water-rich world';
+            else kind = b.mass < 1.5 ? 'Rocky planet' : b.mass < 10 ? 'Super-Earth' : 'Massive rocky planet';
+            if (giant && period < 10) kind = 'Hot ' + kind;
+            const solids = b.rock + b.ice || 1;
+            return { aAU, e, period, teq, R, density, moons, kind,
+                rockPct: Math.round(100 * b.rock / b.mass), icePct: Math.round(100 * b.ice / b.mass), gasPct: Math.round(100 * b.gas / b.mass), solids };
+        }
+
+        // Called every few steps once the star is lit
+        function checkSettled() {
+            const planets = boundPlanets();
+            if (planets.length !== lastPlanetCount) {
+                lastPlanetCount = planets.length;
+                lastPlanetChange = stepCount;
+            }
+            // Once settled it stays that way (names stay with their planets through later mergers);
+            // a planet added later, for example by throwing one in, is named straight away
+            if (settled) {
+                for (const b of planets) if (!b.name) b.name = randomName();
+                return;
+            }
+            if (!settled && planets.length && diskStrength() < 0.05 && stepCount - lastPlanetChange >= Config.SETTLE_STEPS) {
+                settled = true;
+                if (!starName) starName = randomName();
+                for (const b of planets) if (!b.name) b.name = randomName();
+                showToast(starName + ' system: ' + planets.length + ' planet' + (planets.length === 1 ? '' : 's'));
             }
         }
 
@@ -2110,6 +2234,21 @@
                 drawSolidBody(b, r, light);
             }
 
+            // Names, once the system has settled
+            if (settled && showNames) {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.globalAlpha = 0.8;
+                ctx.fillStyle = '#dbe7ff';
+                ctx.textAlign = 'center';
+                ctx.font = `${11 / cam.scale}px ui-sans-serif, system-ui, sans-serif`;
+                for (const b of bodies) {
+                    if (!b.name || b.dead || !inView(b.x, b.y, 0)) continue;
+                    const r = Math.max(b.radius, 2.5 / cam.scale);
+                    ctx.fillText(b.name, b.x, b.y + r + 13 / cam.scale);
+                }
+                ctx.globalAlpha = 1;
+            }
+
             // Protostar or star core
             if (star) {
                 const col = starColor(star.mass);
@@ -2282,6 +2421,21 @@
                 ui.system.innerHTML = '<li class="note">No planets yet</li>';
                 return;
             }
+            if (settled) {
+                const head = `<li class="starcard"><span class="dot" style="background:#fef9c3"></span><span><b>${starName}</b> ` +
+                    `<span class="mono">${solarMasses(star.mass).toFixed(2)} M☉ · frost line ${(2.7 * Config.frostFactor).toFixed(1)} AU</span></span></li>`;
+                ui.system.innerHTML = head + list.filter(({ b }) => b.name).map(({ b }) => {
+                    const d = describePlanet(b);
+                    const mass = b.mass >= 95 ? `${(b.mass / 317.8).toFixed(2)} M♃` : `${b.mass.toFixed(1)} M⊕`;
+                    const comp = [d.rockPct ? `rock ${d.rockPct}%` : '', d.icePct ? `ice ${d.icePct}%` : '', d.gasPct ? `H/He ${d.gasPct}%` : ''].filter(Boolean).join(' · ');
+                    const per = d.period < 2 ? `${(d.period * 365.25).toFixed(1)} d` : `${d.period.toFixed(2)} yr`;
+                    return `<li class="pcard"><span class="dot" style="background:${bodyColor(b)}"></span>` +
+                        `<span><b>${b.name}</b> <span class="mono">${d.kind}${d.moons ? ' · ☾' + d.moons : ''}</span>` +
+                        `<span class="mono pstats">${d.aAU.toFixed(2)} AU · ${per} · e ${d.e.toFixed(2)}<br>` +
+                        `${mass} · ${d.R.toFixed(1)} R⊕ · ${d.density.toFixed(1)} g/cm³ · ${Math.round(d.teq)} K<br>${comp}</span></span></li>`;
+                }).join('');
+                return;
+            }
             ui.system.innerHTML = list.map(({ b, d }) => {
                 let name = TYPE_NAMES[b.type] || 'Planet';
                 if (b.type === 'ice_giant' && b.mass < 30) name = 'Mini-Neptune';
@@ -2350,7 +2504,8 @@
         bindSlider('spinSlider', 'spinVal', (v) => { Config.SPIN_MULTIPLIER = v; }, (v) => v.toFixed(2));
         bindSlider('dragSlider', 'dragVal', (v) => { Config.DRAG = v; }, (v) => v.toFixed(1) + '×');
 
-        let showFrost = true;
+        let showFrost = true, showNames = true;
+        document.getElementById('namesToggle').addEventListener('change', (e) => { showNames = e.target.checked; });
         document.getElementById('varyToggle').addEventListener('change', (e) => { Config.VARY = e.target.checked; });
         document.getElementById('frostToggle').addEventListener('change', (e) => { showFrost = e.target.checked; });
         document.getElementById('particleSelect').addEventListener('change', (e) => {
