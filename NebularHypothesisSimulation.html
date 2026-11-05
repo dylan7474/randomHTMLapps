@@ -441,7 +441,7 @@
                 <li><span class="dot" style="background:#dc2626;box-shadow:0 0 8px rgba(239,68,68,.9)"></span> Protostar</li>
                 <li><span class="dot" style="background:#fef9c3;box-shadow:0 0 10px rgba(255,255,200,1)"></span> Ignited Star</li>
             </ul>
-            <p class="note">Masses are in Earth masses, but the star is only ~15x a big planet (the real Sun is ~1000x Jupiter) and the clock is arbitrary. It shows how a system forms, not to scale.</p>
+            <p class="note">Masses are in Earth masses, the star is ~100x a big giant (the real Sun is ~1000x Jupiter), planets are drawn far too big and it is 2D. Rock and ice are realistic in total; the clock is roughly right for the disk's lifetime.</p>
             <p class="hint">Click to drop a planet into orbit, or drag to throw one. Scroll or pinch to zoom. Space pauses.</p>
         </div>
     </div>
@@ -451,7 +451,13 @@
          * Physical constants and simulation parameters
          */
         const Config = {
-            G: 0.8,
+            // Mass scale: the star and the gas are this many times heavier than in the first version,
+            // while rock and ice stay the same size in Earth masses. Real planets are about 0.1% of
+            // their star, so the bigger this is, the calmer and more realistic the system
+            // (planets barely tug on each other), at the cost of slower planet building
+            MASS_SCALE: 30,
+            G_REL: 0.8,              // The slider's G; the real G is divided by MASS_SCALE so orbits keep their speed
+            get G() { return this.G_REL / this.MASS_SCALE; },
             SOFTENING: 15,           // Keeps close encounters from slingshotting bodies away
             DT: 0.1,                 // Fixed physics step; the speed slider changes steps per second
             SPEED: 1.5,              // Multiplier on 60 steps per second
@@ -459,17 +465,30 @@
             SPIN_MULTIPLIER: 1.0,    // How fast the cloud turns, relative to orbital speed at its edge
 
             // Mass thresholds (solid mass for planetesimals)
-            MASS_ASTEROID: 4,
-            PLANETESIMAL_MASS: 1.0,  // Condensed solids needed for a nebula parcel to become a planetesimal
+            MASS_ASTEROID: 1.5,
+            DUST_CELL: 24,           // Dust within a cell this wide gathers into one planetesimal
+            PLANETESIMAL_MASS: 0.5,  // Condensed solids needed for a nebula parcel to become a planetesimal
             SUBLIMATION: 0.004,      // Share of its ice a small body loses per step inside the frost line
-            MASS_PLANET: 10,
-            MASS_GAS_GIANT: 60,
+            MASS_PLANET: 4,
+            MASS_GAS_GIANT: 30,
 
             // The core becomes a protostar, then ignites once it holds enough of the system's mass
             PROTOSTAR_FRACTION: 0.04,
             ANCHOR_FRACTION: 0.2,    // Gas orbits the core once it holds this much, else the centre of mass
             ROT_PROFILE: 0.7,        // 1 = solid-body rotation, 0 = same fraction of orbital speed everywhere
             JITTER: 0.1,             // Random velocity as a fraction of the edge orbital speed
+            // Migration: planets trade angular momentum with the gas disk and drift inwards, bigger
+            // ones faster (type I), until they are heavy enough to open a gap (type II, slow). They
+            // stop at the disk's inner edge, where the star's magnetic field clears the gas
+            MIGRATION: 0.008,        // How far below circular speed (fraction) a 10 Earth-mass planet is dragged
+            GAP_MASS: 100,           // Planets heavier than this migrate more slowly
+            CAVITY: 0.12,            // Inner edge of the disk, as a fraction of the cloud's radius
+            // Hot planets lose their gas envelopes to the star's light, small ones fastest
+            ENVELOPE_LOSS: 0.004,
+            HILL_MERGE: 6.0,         // Solid bodies merge when closer than this many mutual Hill radii
+            MAX_CONTACT: 70,         // ...but never from further apart than this
+            GAS_GRAVITY: 0.15,       // How hard gas lumps pull once a protostar exists (1 = full weight)
+            CORE_ZONE: 0.15,         // Gas this close to the cloud's centre (fraction of its radius) collapses into one body
             CORE_CAPTURE: 4,         // The core sweeps up gas within this many of its radii
             SOLID_HIT: 0.5,          // Contact distance multiplier for the star and moons
             PLANET_HIT: 0.4,         // ...and between a planet and another solid body. Planets are drawn
@@ -490,7 +509,7 @@
             IMPACT_GLANCING: 0.35,   // How off-centre a hit must be (0 = head-on, 1 = grazing)
             IMPACT_DEBRIS: 0.2,      // Fraction of the impactor thrown into orbit as moonlets
             INFALL_DAMPING: 0.1,     // How much gas falling inwards is slowed, relative to outward motion
-            PARCEL_GAS_MAX: 1.5,     // Most gas a nebula parcel holds; extra stays in neighbouring parcels
+            get PARCEL_GAS_MAX() { return 1.5 * this.MASS_SCALE; },     // Most gas a nebula parcel holds; extra stays in neighbouring parcels
             GAS_STICK: 1.0,          // Contact distance multiplier when two gas particles meet
             HEADWIND: 0.1,           // How much orbital speed solids lose to the gas's headwind
             GAS_HEADWIND: 0.1,       // How quickly gas itself loses orbital speed (viscosity feeding the star)
@@ -498,7 +517,7 @@
             PLANET_DRAG: 0.15,       // Drag factor for solid bodies (makes them migrate inwards)
             DENSITY_POWER: 0.85,     // Higher = cloud more concentrated towards the middle
             STAR_FRACTION: 0.6,      // The star ignites once it holds this share of the system's mass
-            MIN_STAR_MASS: 400,
+            get MIN_STAR_MASS() { return 400 * this.MASS_SCALE; },
 
             // After ignition the star's light boils the leftover nebula away and the disk thins out
             WIND_STRENGTH: 60,       // Strength of the young star's radiation
@@ -507,20 +526,24 @@
             DISK_DECAY_STEPS: 500,   // How quickly the gas disk's drag fades after ignition
 
             // Composition of the nebula, and where ice can freeze
-            ROCK_FRACTION: 0.25,     // Rock (silicates, metals): condenses anywhere
-            ICE_FRACTION: 0.35,      // Water/ammonia/methane ice: only condenses beyond the frost line
+            ROCK_MASS: 120,          // Rock (silicates, metals) in the whole cloud, in Earth masses: condenses anywhere
+            ICE_MASS: 300,          // Water/ammonia/methane ice: only condenses beyond the frost line
+            get ROCK_FRACTION() { return this.ROCK_MASS / this.TOTAL_MASS; },
+            get ICE_FRACTION() { return this.ICE_MASS / this.TOTAL_MASS; },
+            ENVELOPE_MAX: 5,         // A planet's gas envelope is at most this many times its solid core
                                      // (the rest is hydrogen and helium gas)
             FROST_RADIUS: 0.55,      // Frost line radius, as a fraction of the cloud's starting radius
-            CRITICAL_CORE: 18,       // Solid core mass above which a planet can pull in gas (runaway growth)
+            CRITICAL_CORE: 15,       // Solid core mass above which a planet can pull in gas (runaway growth)
 
             // Initial cloud generation (world units, independent of screen size)
             PARTICLES: 'auto',       // 'auto' = 2400 with GPU gravity, 1200 on the CPU
-            TOTAL_MASS: 1440,
+            get TOTAL_MASS() { return 1440 * this.MASS_SCALE; },
             CLOUD_RADIUS: 320,
             DRAG_REF_MASS: 1.2,      // Drag is scaled relative to a parcel of this mass
             USE_GPU: true,
 
-            MYR_PER_STEP: 0.0005
+            MYR_PER_STEP: 0.0003,       // Clock before the star lights (collapse takes a fraction of a Myr)
+            MYR_PER_STEP_LIT: 0.003     // ...and after (the gas disk lasts a few Myr, planets finish in tens)
         };
 
         const canvas = document.getElementById('simCanvas');
@@ -608,7 +631,7 @@
 
         // Star colour by mass: small stars orange, big ones blue-white
         function starColor(mass) {
-            const t = Math.max(0, Math.min(1, (mass - 400) / 1600));
+            const t = Math.max(0, Math.min(1, (mass / Config.MASS_SCALE - 400) / 1600));
             const stops = [[255, 170, 90], [255, 236, 190], [255, 250, 240], [200, 220, 255]];
             const f = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(f)), k = f - i;
             return stops[i].map((v, j) => Math.round(v + (stops[i + 1][j] - v) * k));
@@ -710,7 +733,9 @@
                     this.type = 'asteroid';
                     density = this.ice > this.rock ? 1.0 : 1.6;
                 }
-                this.radius = Math.max(1.2, Math.pow((this.mass / density) * 10, 1 / 3));
+                // Gas and the star are drawn at their old size, whatever the mass scale
+                const m = !this.isSolid || this === star ? this.mass / Config.MASS_SCALE : this.mass;
+                this.radius = Math.max(1.2, Math.pow((m / density) * 10, 1 / 3));
             }
 
             // Absorb the whole of another body, conserving momentum
@@ -783,6 +808,40 @@
             b.updateProperties();
         }
 
+        // Dust that has gathered thickly in one place collapses into a planetesimal, whether or not its
+        // parcels happen to touch (streaming instability: pebbles clump in the gas)
+        const dustCells = new Map();
+        function formPlanetesimals() {
+            dustCells.clear();
+            const cell = Config.DUST_CELL;
+            for (const b of bodies) {
+                if (b.isSolid || b.dead || b.locked || b === coreBody || b === star) continue;
+                const sol = b.rock + (beyondFrost(b) ? b.ice : 0);
+                if (sol <= 0) continue;
+                const key = (Math.floor(b.x / cell) + 32768) * 65536 + (Math.floor(b.y / cell) + 32768);
+                let c = dustCells.get(key);
+                if (!c) dustCells.set(key, c = { sol: 0, list: [] });
+                c.sol += sol;
+                c.list.push(b);
+            }
+            for (const c of dustCells.values()) {
+                if (c.sol < Config.PLANETESIMAL_MASS) continue;
+                let rock = 0, ice = 0, x = 0, y = 0, vx = 0, vy = 0;
+                for (const b of c.list) {
+                    const i = beyondFrost(b) ? b.ice : 0, sol = b.rock + i;
+                    rock += b.rock;
+                    ice += i;
+                    x += b.x * sol; y += b.y * sol; vx += b.vx * sol; vy += b.vy * sol;
+                    b.rock = 0;
+                    b.ice -= i;
+                    b.updateProperties();
+                    if (b.mass < 0.02) b.dead = true;
+                }
+                const m = rock + ice;
+                bodies.push(new Body(x / m, y / m, vx / m, vy / m, rock, ice, 0, true));
+            }
+        }
+
         function particleCount() {
             return Config.PARTICLES === 'auto' ? (GpuGravity.ok ? 2400 : 1200) : Config.PARTICLES;
         }
@@ -851,7 +910,7 @@
                 const r = R * (0.8 + Math.random() * 0.4);
                 const theta = Math.random() * Math.PI * 2;
                 const v = Math.sqrt((Config.G * totalMass) / r) * 0.9 * Config.SPIN_MULTIPLIER;
-                const mass = 0.6;
+                const mass = 0.6 * Config.MASS_SCALE;
                 // Orbit the current centre, moving along with it
                 bodies.push(new Body(
                     centre.x + r * Math.cos(theta),
@@ -1219,7 +1278,7 @@
                     const b = list[i], k = i * 4;
                     upload[k] = b.x - ox;
                     upload[k + 1] = b.y - oy;
-                    upload[k + 2] = b.mass;
+                    upload[k + 2] = b.gw;
                     upload[k + 3] = 0;
                 }
                 gl.bindTexture(gl.TEXTURE_2D, posTex);
@@ -1248,7 +1307,14 @@
 
         function applyGravity(dt) {
             gravityList.length = 0;
-            for (const b of bodies) if (!b.dead && !b.locked) gravityList.push(b);
+            // Gas is modelled as lumpy parcels. Once there is a protostar the lumps must not tug on
+            // small solids harder than the real, smooth disk would, so they pull with a fraction of their mass
+            const gasW = coreBody ? Config.GAS_GRAVITY : 1;
+            for (const b of bodies) {
+                if (b.dead || b.locked) continue;
+                b.gw = !b.isSolid && b !== coreBody && b !== star ? b.mass * gasW : b.mass;
+                gravityList.push(b);
+            }
             const n = gravityList.length;
             const G = Config.G, soft = Config.SOFTENING;
             if (GpuGravity.ok && Config.USE_GPU && n > 64) {
@@ -1267,10 +1333,10 @@
                     const dx = b.x - a.x, dy = b.y - a.y;
                     const dSq = dx * dx + dy * dy;
                     const f = (G * dt) / ((dSq + soft) * Math.sqrt(dSq + 1e-6));
-                    a.vx += dx * f * b.mass;
-                    a.vy += dy * f * b.mass;
-                    b.vx -= dx * f * a.mass;
-                    b.vy -= dy * f * a.mass;
+                    a.vx += dx * f * b.gw;
+                    a.vy += dy * f * b.gw;
+                    b.vx -= dx * f * a.gw;
+                    b.vy -= dy * f * a.gw;
                 }
             }
         }
@@ -1281,8 +1347,17 @@
         function contactDistance(a, b) {
             const rr = a.radius + b.radius;
             if (!a.isSolid && !b.isSolid) return rr * Config.GAS_STICK;
-            if (a.isSolid && b.isSolid && Math.max(a.mass, b.mass) >= Config.MASS_PLANET) return rr * Config.PLANET_HIT;
-            return rr;
+            let d = rr;
+            if (a.isSolid && b.isSolid && Math.max(a.mass, b.mass) >= Config.MASS_PLANET) d = rr * Config.PLANET_HIT;
+            // Two solid bodies pull each other off course long before they touch (gravitational
+            // focusing), so count a close pass within their mutual Hill radius as a collision
+            const c = coreBody || star;
+            if (c && a.isSolid && b.isSolid) {
+                const r = Math.hypot((a.x + b.x) / 2 - c.x, (a.y + b.y) / 2 - c.y);
+                const hill = Config.HILL_MERGE * r * Math.cbrt((a.mass + b.mass) / (3 * c.mass));
+                d = Math.max(d, Math.min(hill, Config.MAX_CONTACT));
+            }
+            return d;
         }
 
         function collide(a, b, dx, dy) {
@@ -1290,7 +1365,10 @@
             // but gas doesn't clump into free-floating balls; it stays spread through the disk
             if (!a.isSolid && !b.isSolid) {
                 const big = a.solidMass >= b.solidMass ? a : b, small = big === a ? b : a;
-                const gasRoom = Math.max(0, Config.PARCEL_GAS_MAX - big.gas);
+                // Out in the cloud gas stays spread through the disk; in the dense middle it collapses
+                // freely, and that is what builds the protostar
+                const inCentre = Math.hypot(big.x - anchor.x, big.y - anchor.y) < Config.CORE_ZONE * Config.CLOUD_RADIUS;
+                const gasRoom = inCentre ? Infinity : Math.max(0, Config.PARCEL_GAS_MAX - big.gas);
                 absorb(big, small, small.rock, small.ice, Math.min(small.gas, gasRoom));
                 condense(big);
                 return;
@@ -1308,10 +1386,12 @@
             // A solid body sweeping through nebula takes what it can hold: rock always, ice only
             // beyond the frost line, and gas only once its core is massive enough
             const s = a.isSolid ? a : b, p = s === a ? b : a;
-            absorb(s, p, p.rock, beyondFrost(s) ? p.ice : 0, s.solidMass >= Config.CRITICAL_CORE ? p.gas : 0);
+            const room = s.solidMass >= Config.CRITICAL_CORE ? Math.max(0, Config.ENVELOPE_MAX * s.solidMass - s.gas) : 0;
+            absorb(s, p, p.rock, beyondFrost(s) ? p.ice : 0, Math.min(p.gas, room));
         }
 
         const grid = new Map();
+        const solidList = [];
         function processCollisions(core, capture) {
             // The core sweeps up everything that reaches it
             if (core) {
@@ -1329,8 +1409,10 @@
             for (const b of bodies) if (!b.dead && !b.locked && b !== core && b.radius > maxR) maxR = b.radius;
             const cell = Math.max(6, maxR * 2);
             grid.clear();
+            solidList.length = 0;
             for (const b of bodies) {
                 if (b.dead || b.locked || b === core) continue;
+                if (b.isSolid) solidList.push(b);
                 const key = (Math.floor(b.x / cell) + 32768) * 65536 + (Math.floor(b.y / cell) + 32768);
                 let list = grid.get(key);
                 if (!list) grid.set(key, list = []);
@@ -1339,12 +1421,23 @@
 
             const check = (a, b) => {
                 if (a.dead || b.dead) return;
+                if (a.isSolid && b.isSolid) return;   // solid pairs are checked separately (they reach further)
                 // A pair that just bounced apart gets a moment to separate
                 if ((a.bounceFrom === b || b.bounceFrom === a) && stepCount < Math.max(a.bounceUntil || 0, b.bounceUntil || 0)) return;
                 const dx = b.x - a.x, dy = b.y - a.y;
                 const rr = contactDistance(a, b);
                 if (dx * dx + dy * dy < rr * rr) collide(a, b, dx, dy);
             };
+            const checkSolids = (a, b) => {
+                if (a.dead || b.dead) return;
+                if ((a.bounceFrom === b || b.bounceFrom === a) && stepCount < Math.max(a.bounceUntil || 0, b.bounceUntil || 0)) return;
+                const dx = b.x - a.x, dy = b.y - a.y;
+                const rr = contactDistance(a, b);
+                if (dx * dx + dy * dy < rr * rr) collide(a, b, dx, dy);
+            };
+            for (let i = 0; i < solidList.length; i++) {
+                for (let j = i + 1; j < solidList.length; j++) checkSolids(solidList[i], solidList[j]);
+            }
             const NEIGHBOURS = [[1, 0], [1, 1], [0, 1], [-1, 1]];
             for (const [key, list] of grid) {
                 const cx = Math.floor(key / 65536), cy = key % 65536;
@@ -1442,9 +1535,14 @@
 
                     // Planets embedded in the disk (and moonlets in a planet's disk) have their orbits
                     // rounded off by the gas, so they don't plunge in on long, thin orbits
-                    if (anchorOnCore && b.isSolid && (h || b.mass >= Config.MASS_PLANET)) {
+                    if (anchorOnCore && b.isSolid) {
                         const kc = circularize;
-                        const vc = Math.sqrt((Config.G * (h ? h.mass : massInside(r))) / r) * (vt >= 0 ? 1 : -1);
+                        let vc = Math.sqrt((Config.G * (h ? h.mass : massInside(r))) / r) * (vt >= 0 ? 1 : -1);
+                        if (!h) {
+                            const cav = Config.CAVITY * Config.CLOUD_RADIUS;
+                            const edge = Math.max(0, Math.min(1, (r - cav) / (cav * 0.5)));
+                            vc *= 1 - Config.MIGRATION * Math.min(3, b.mass / 10) / (1 + b.mass / Config.GAP_MASS) * edge;
+                        }
                         vr2 = vr * (1 - kc);
                         vt2 = vt + (vc - vt) * kc;
                     }
@@ -1456,14 +1554,13 @@
             // Once lit, the young star's light heats the leftover nebula until it escapes
             // (photoevaporation): the disk thins out gradually, closest to the star first
             if (star) {
-                const w = Config.WIND_STRENGTH * Math.exp(-(stepCount - ignitionStep) / Config.WIND_DECAY_STEPS) * (star.mass / 500);
+                const w = Config.WIND_STRENGTH * Math.exp(-(stepCount - ignitionStep) / Config.WIND_DECAY_STEPS) * (star.mass / (500 * Config.MASS_SCALE));
                 if (w > 0.01) {
                     for (const b of bodies) {
                         if (b.isSolid || b === star || b.dead) continue;
                         const r = Math.hypot(b.x - star.x, b.y - star.y);
                         const keep = 1 - Math.min(0.5, (Config.EVAPORATION * w * dt) / (1 + r / 100));
-                        b.rock *= keep;
-                        b.ice *= keep;
+                        // Only the gas boils away; the dust stays behind to build planets
                         b.gas *= keep;
                         b.updateProperties();
                         if (b.mass < 0.02) b.dead = true;
@@ -1489,8 +1586,22 @@
                 }
             }
 
+            // A hot planet's light-weight gas envelope is blown off by the star (why there are
+            // few hot Neptunes); heavy giants hold on to theirs
+            if (stepCount % 5 === 0 && star) {
+                for (const b of bodies) {
+                    if (!b.isSolid || b.dead || b.locked || b === star || b.gas <= 0) continue;
+                    const r = Math.hypot(b.x - star.x, b.y - star.y);
+                    if (r > frostR) continue;
+                    const lost = b.gas * Math.min(0.2, Config.ENVELOPE_LOSS * 5 * Math.pow(frostR / Math.max(r, 20), 2) * Math.min(1, 30 / b.solidMass) * Math.min(1, 100 / b.mass));
+                    b.gas -= lost;
+                    b.updateProperties();
+                }
+            }
+
             // Collisions, then gravity
             const core = hasCore ? heaviest : null;
+            if (stepCount % 10 === 0) formPlanetesimals();
             processCollisions(core, core ? core.radius * Config.CORE_CAPTURE : 0);
             applyGravity(dt);
 
@@ -2012,7 +2123,8 @@
                 if (!b.isSolid && b !== star && Math.hypot(b.x - anchor.x, b.y - anchor.y) < Config.CLOUD_RADIUS * 2) gasMass += b.mass;
             }
             ui.bodies.textContent = bodies.length;
-            ui.time.textContent = (stepCount * Config.MYR_PER_STEP).toFixed(2);
+            const lit = ignitionStep < 0 ? 0 : stepCount - ignitionStep;
+            ui.time.textContent = ((stepCount - lit) * Config.MYR_PER_STEP + lit * Config.MYR_PER_STEP_LIT).toFixed(2);
             ui.mass.textContent = heaviest ? Math.floor(heaviest.mass) : 0;
             ui.planets.textContent = planets;
             ui.moons.textContent = moons;
@@ -2115,7 +2227,7 @@
             });
         };
         bindSlider('speedSlider', 'speedVal', (v) => { Config.SPEED = v; }, (v) => v + '×');
-        bindSlider('gSlider', 'gVal', (v) => { Config.G = v; }, (v) => v.toFixed(1));
+        bindSlider('gSlider', 'gVal', (v) => { Config.G_REL = v; }, (v) => v.toFixed(1));
         bindSlider('spinSlider', 'spinVal', (v) => { Config.SPIN_MULTIPLIER = v; }, (v) => v.toFixed(2));
         bindSlider('dragSlider', 'dragVal', (v) => { Config.DRAG = v; }, (v) => v.toFixed(1) + '×');
 
