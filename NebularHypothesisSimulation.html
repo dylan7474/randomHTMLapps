@@ -411,6 +411,8 @@
             <p class="note">More particles is smoother and more realistic; applies when the cloud restarts</p>
 
             <label class="check"><input type="checkbox" id="frostToggle" checked> Show frost line</label>
+            <label class="check"><input type="checkbox" id="varyToggle" checked> Every cloud different</label>
+            <p class="note" id="cloudNote"></p>
         </div>
 
         <hr>
@@ -466,6 +468,7 @@
 
             // Mass thresholds (solid mass for planetesimals)
             MASS_ASTEROID: 1.5,
+            DUST_GROWTH: 120,        // ...and the cell grows by its own width for every this much distance from the core
             DUST_CELL: 24,           // Dust within a cell this wide gathers into one planetesimal
             PLANETESIMAL_MASS: 0.5,  // Condensed solids needed for a nebula parcel to become a planetesimal
             SUBLIMATION: 0.004,      // Share of its ice a small body loses per step inside the frost line
@@ -480,11 +483,13 @@
             // Migration: planets trade angular momentum with the gas disk and drift inwards, bigger
             // ones faster (type I), until they are heavy enough to open a gap (type II, slow). They
             // stop at the disk's inner edge, where the star's magnetic field clears the gas
-            MIGRATION: 0.008,        // How far below circular speed (fraction) a 10 Earth-mass planet is dragged
+            MIGRATION: 0.15,         // How far below circular speed (fraction) a 10 Earth-mass planet is dragged
             GAP_MASS: 100,           // Planets heavier than this migrate more slowly
             CAVITY: 0.12,            // Inner edge of the disk, as a fraction of the cloud's radius
             // Hot planets lose their gas envelopes to the star's light, small ones fastest
             ENVELOPE_LOSS: 0.004,
+            STABLE_SPACING: 2.5,     // Planets closer than this many mutual Hill radii are unstable...
+            STIR: 0.006,             // ...and get nudged by this fraction of their speed until they scatter or merge
             HILL_MERGE: 6.0,         // Solid bodies merge when closer than this many mutual Hill radii
             MAX_CONTACT: 70,         // ...but never from further apart than this
             GAS_GRAVITY: 0.15,       // How hard gas lumps pull once a protostar exists (1 = full weight)
@@ -526,14 +531,19 @@
             DISK_DECAY_STEPS: 500,   // How quickly the gas disk's drag fades after ignition
 
             // Composition of the nebula, and where ice can freeze
+            // Every cloud is different (our Solar System is not typical: most systems are tight chains of
+            // super-Earths, only about one star in eight has giants). Each restart draws these:
+            VARY: true,
+            dustFactor: 1,           // How dust-rich this cloud is (multiplies the rock and ice below)
+            frostFactor: 1,          // Where the frost line sits (set by the star's brightness)
             ROCK_MASS: 120,          // Rock (silicates, metals) in the whole cloud, in Earth masses: condenses anywhere
             ICE_MASS: 300,          // Water/ammonia/methane ice: only condenses beyond the frost line
-            get ROCK_FRACTION() { return this.ROCK_MASS / this.TOTAL_MASS; },
-            get ICE_FRACTION() { return this.ICE_MASS / this.TOTAL_MASS; },
+            get ROCK_FRACTION() { return this.ROCK_MASS * this.dustFactor / this.TOTAL_MASS; },
+            get ICE_FRACTION() { return this.ICE_MASS * this.dustFactor / this.TOTAL_MASS; },
             ENVELOPE_MAX: 5,         // A planet's gas envelope is at most this many times its solid core
                                      // (the rest is hydrogen and helium gas)
             FROST_RADIUS: 0.55,      // Frost line radius, as a fraction of the cloud's starting radius
-            CRITICAL_CORE: 15,       // Solid core mass above which a planet can pull in gas (runaway growth)
+            CRITICAL_CORE: 25,       // Solid core mass above which a planet can pull in gas (runaway growth)
 
             // Initial cloud generation (world units, independent of screen size)
             PARTICLES: 'auto',       // 'auto' = 2400 with GPU gravity, 1200 on the CPU
@@ -722,7 +732,7 @@
                 } else if (this.gas > solidMass && this.mass >= Config.MASS_PLANET * 3) {
                     this.type = 'gas_giant';
                     density = 0.7;
-                } else if (this.mass >= Config.MASS_PLANET && this.gas >= this.mass * 0.25) {
+                } else if (this.mass >= Config.MASS_PLANET * 3 && this.gas >= this.mass * 0.08) {
                     // A big icy/rocky core under a thick hydrogen envelope: Neptune-like
                     this.type = 'ice_giant';
                     density = 0.9;
@@ -813,12 +823,16 @@
         const dustCells = new Map();
         function formPlanetesimals() {
             dustCells.clear();
-            const cell = Config.DUST_CELL;
+            const cx = (coreBody || anchor).x, cy = (coreBody || anchor).y;
             for (const b of bodies) {
                 if (b.isSolid || b.dead || b.locked || b === coreBody || b === star) continue;
                 const sol = b.rock + (beyondFrost(b) ? b.ice : 0);
                 if (sol <= 0) continue;
-                const key = (Math.floor(b.x / cell) + 32768) * 65536 + (Math.floor(b.y / cell) + 32768);
+                // Further out the disk is thin and orbits are wide, so dust is gathered from a wider
+                // patch there: fewer, bigger seeds instead of a ring of tiny ones
+                const r = Math.hypot(b.x - cx, b.y - cy);
+                const cell = Math.round(Config.DUST_CELL * (1 + r / Config.DUST_GROWTH) / 12) * 12;
+                const key = cell * 1e9 + (Math.floor(b.x / cell) + 32768) * 65536 + (Math.floor(b.y / cell) + 32768);
                 let c = dustCells.get(key);
                 if (!c) dustCells.set(key, c = { sol: 0, list: [] });
                 c.sol += sol;
@@ -859,11 +873,18 @@
             hitRunCount = 0;
             moonAnnounced = false;
             frostR = 0;
+            // Dust-rich clouds build giants; dust-poor ones build only rocky planets and small cores
+            const rnd = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;   // about -1..1, bell-shaped
+            Config.dustFactor = Config.VARY ? Math.exp(rnd() * 1.1) : 1;       // 0.33x to 3x
+            Config.frostFactor = Config.VARY ? Math.exp(rnd() * 0.3) : 1;     // 0.74x to 1.35x
             cam.x = 0;
             cam.y = 0;
             cam.fitExtent = Config.CLOUD_RADIUS;
             cam.scale = targetScale();
             ui.toast.classList.remove('show');
+            document.getElementById('cloudNote').textContent = Config.VARY
+                ? `This cloud: ${Config.dustFactor.toFixed(1)}x the usual dust, frost line at ${(2.7 * Config.frostFactor).toFixed(1)} AU`
+                : '';
 
             const count = particleCount();
             const R = Config.CLOUD_RADIUS;
@@ -1483,7 +1504,7 @@
 
             // The frost line: where the disk is cold enough for ice (set by the disk's temperature)
             frostCentre = hasCore ? heaviest : anchor;
-            frostR = Config.FROST_RADIUS * Config.CLOUD_RADIUS;
+            frostR = Config.FROST_RADIUS * Config.frostFactor * Config.CLOUD_RADIUS;
 
             if (anchorOnCore) {
                 if (stepCount % 3 === 0) assignHosts(heaviest);
@@ -1541,7 +1562,7 @@
                         if (!h) {
                             const cav = Config.CAVITY * Config.CLOUD_RADIUS;
                             const edge = Math.max(0, Math.min(1, (r - cav) / (cav * 0.5)));
-                            vc *= 1 - Config.MIGRATION * Math.min(3, b.mass / 10) / (1 + b.mass / Config.GAP_MASS) * edge;
+                            vc *= 1 - Config.MIGRATION * Math.min(3, 0.5 + b.mass / 12) / (1 + b.mass / Config.GAP_MASS) * edge;
                         }
                         vr2 = vr * (1 - kc);
                         vt2 = vt + (vc - vt) * kc;
@@ -1588,6 +1609,7 @@
 
             // A hot planet's light-weight gas envelope is blown off by the star (why there are
             // few hot Neptunes); heavy giants hold on to theirs
+            if (star && stepCount % 40 === 0) stirCrowdedOrbits();
             if (stepCount % 5 === 0 && star) {
                 for (const b of bodies) {
                     if (!b.isSolid || b.dead || b.locked || b === star || b.gas <= 0) continue;
@@ -1649,6 +1671,31 @@
             if (!star && heaviest && !heaviest.dead &&
                 heaviest.mass >= Math.max(Config.MIN_STAR_MASS, Config.STAR_FRACTION * totalMass)) {
                 ignite(heaviest);
+            }
+        }
+
+        // Planets can't share an orbit for long: two within about 3.5 mutual Hill radii of each other
+        // (in semi-major axis) pull each other onto crossing orbits, so they scatter or collide.
+        // Give the lighter one of such a pair a small nudge so that happens in the time we simulate.
+        function stirCrowdedOrbits() {
+            const P = [];
+            for (const b of bodies) {
+                if (!b.isSolid || b.locked || b.dead || b === star || b.mass < Config.MASS_PLANET) continue;
+                const rx = b.x - star.x, ry = b.y - star.y, vx = b.vx - star.vx, vy = b.vy - star.vy;
+                const r = Math.hypot(rx, ry), mu = Config.G * (star.mass + b.mass);
+                const E = 0.5 * (vx * vx + vy * vy) - mu / r;
+                if (E >= 0) continue;
+                P.push({ b, a: -mu / (2 * E) });
+            }
+            P.sort((p, q) => p.a - q.a);
+            for (let i = 0; i + 1 < P.length; i++) {
+                const p = P[i], q = P[i + 1];
+                const rh = Math.cbrt((p.b.mass + q.b.mass) / (3 * star.mass)) * (p.a + q.a) / 2;
+                if (q.a - p.a > Config.STABLE_SPACING * rh) continue;
+                const small = p.b.mass < q.b.mass ? p.b : q.b;
+                const k = (Math.random() - 0.5) * 2 * Config.STIR;
+                small.vx += (small.vx - star.vx) * k;
+                small.vy += (small.vy - star.vy) * k;
             }
         }
 
@@ -2119,7 +2166,7 @@
             let planets = 0, moons = 0, gasMass = 0;
             for (const b of bodies) {
                 if (b.locked) moons++;
-                else if (b.isSolid && b.mass >= Config.MASS_PLANET && b !== star) planets++;
+                else if (star && b.isSolid && b.mass >= Config.MASS_PLANET && b !== star) planets++;
                 if (!b.isSolid && b !== star && Math.hypot(b.x - anchor.x, b.y - anchor.y) < Config.CLOUD_RADIUS * 2) gasMass += b.mass;
             }
             ui.bodies.textContent = bodies.length;
@@ -2159,7 +2206,7 @@
                 .filter((e) => e.d < Config.CLOUD_RADIUS * 6)
                 .sort((e1, e2) => e1.d - e2.d)
                 .slice(0, 12);
-            if (!list.length) {
+            if (!list.length || !star) {
                 ui.system.innerHTML = '<li class="note">No planets yet</li>';
                 return;
             }
@@ -2232,6 +2279,7 @@
         bindSlider('dragSlider', 'dragVal', (v) => { Config.DRAG = v; }, (v) => v.toFixed(1) + '×');
 
         let showFrost = true;
+        document.getElementById('varyToggle').addEventListener('change', (e) => { Config.VARY = e.target.checked; });
         document.getElementById('frostToggle').addEventListener('change', (e) => { showFrost = e.target.checked; });
         document.getElementById('particleSelect').addEventListener('change', (e) => {
             Config.PARTICLES = e.target.value === 'auto' ? 'auto' : parseInt(e.target.value, 10);
