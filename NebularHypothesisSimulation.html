@@ -288,6 +288,35 @@
         .system li.pcard .mono { display: inline; }
         .system li.pcard .pstats { display: block; line-height: 1.5; margin-top: 1px; }
 
+        #planetCard {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 270px;
+            max-height: calc(100vh - 32px);
+            overflow-y: auto;
+            padding: 14px;
+            border-radius: 12px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+            z-index: 11;
+            display: none;
+            font-size: 12px;
+        }
+
+        #planetCard.show { display: block; }
+        #planetCard h2 { font-size: 17px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 8px; }
+        #planetCard .kind { color: #9ca3af; font-size: 12px; margin: 2px 0 10px; }
+        #planetCard .grid { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+        #planetCard .grid span:nth-child(odd) { color: #9ca3af; }
+        #planetCard .grid span:nth-child(even) { text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+        #planetCard .comp { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin: 12px 0 4px; background: rgba(255,255,255,0.08); }
+        #planetCard .complabel { color: #9ca3af; font-size: 11px; }
+        #planetCard .gone { color: #fbbf24; margin-top: 8px; }
+
+        @media (max-width: 600px) {
+            #planetCard { top: auto; bottom: 16px; left: 16px; right: 16px; width: auto; max-height: 45vh; }
+        }
+
         .legend h3 {
             font-size: 12px;
             font-weight: 600;
@@ -362,6 +391,14 @@
     <div id="toast"></div>
 
     <button id="panelToggle" class="glass-panel" aria-label="Show controls">☰</button>
+
+    <div id="planetCard" class="glass-panel" role="dialog" aria-label="Planet details">
+        <div class="panel-head">
+            <h2 id="pcTitle"></h2>
+            <button id="pcClose" class="icon-btn" aria-label="Close">×</button>
+        </div>
+        <div id="pcBody"></div>
+    </div>
 
     <div id="panel" class="glass-panel">
         <div class="panel-head">
@@ -960,6 +997,7 @@
             lastPlanetChange = 0;
             starName = '';
             usedNames.clear();
+            if (typeof closeCard === 'function') closeCard();
             frostR = 0;
             // Dust-rich clouds build giants; dust-poor ones build only rocky planets and small cores
             // Dust scales with the star's metallicity, 10^[Fe/H] (relative to the Sun). Sun-like stars in the
@@ -1867,7 +1905,7 @@
             else if (b.type === 'ice_giant') kind = b.mass < 30 ? 'Mini-Neptune' : 'Ice giant';
             else if (b.type === 'icy') kind = b.mass < 10 ? 'Ice world' : 'Water-rich world';
             else kind = b.mass < 1.5 ? 'Rocky planet' : b.mass < 10 ? 'Super-Earth' : 'Massive rocky planet';
-            if (giant && period < 10) kind = 'Hot ' + kind;
+            if (giant && period * 365.25 < 10) kind = 'Hot ' + kind;   // hot = orbital period under 10 days
             const solids = b.rock + b.ice || 1;
             return { aAU, e, period, teq, R, density, moons, kind,
                 rockPct: Math.round(100 * b.rock / b.mass), icePct: Math.round(100 * b.ice / b.mass), gasPct: Math.round(100 * b.gas / b.mass), solids };
@@ -2249,6 +2287,17 @@
                 ctx.globalAlpha = 1;
             }
 
+            if (selected && !selected.dead) {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.globalAlpha = 0.9;
+                ctx.strokeStyle = '#93c5fd';
+                ctx.lineWidth = 1.5 / cam.scale;
+                ctx.beginPath();
+                ctx.arc(selected.x, selected.y, Math.max((selected.visRadius || selected.radius) * 1.5, 9 / cam.scale), 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+            }
+
             // Protostar or star core
             if (star) {
                 const col = starColor(star.mass);
@@ -2402,6 +2451,7 @@
             else phase = '○ Collapsing cloud';
             ui.phase.textContent = phase;
             updateSystemList();
+            refreshCard();
         }
 
         // Planets sorted by distance. One AU is fixed so that the Sun's frost line (2.7 AU; Hayashi 1981)
@@ -2447,6 +2497,87 @@
                     `<span class="mono">${Math.round(b.mass)} M⊕</span></li>`;
             }).join('');
         }
+
+        // ------------------------------------------------------------------
+        // Click a planet (or the star) for its card
+        // ------------------------------------------------------------------
+        let selected = null;
+        const card = document.getElementById('planetCard');
+        const pcTitle = document.getElementById('pcTitle');
+        const pcBody = document.getElementById('pcBody');
+
+        function pickBody(wx, wy) {
+            let best = null, bestD = Infinity;
+            for (const b of bodies) {
+                if (b.dead || b.locked) continue;
+                if (b !== star && !(b.isSolid && b.mass >= Config.MASS_PLANET)) continue;
+                const reach = Math.max((b.visRadius || b.radius) * 1.3, 14 / cam.scale);
+                const d = Math.hypot(b.x - wx, b.y - wy);
+                if (d < reach && d / reach < bestD) { best = b; bestD = d / reach; }
+            }
+            return best;
+        }
+
+        function closeCard() {
+            selected = null;
+            card.classList.remove('show');
+        }
+
+        function openCard(b) {
+            selected = b;
+            card.classList.add('show');
+            refreshCard();
+        }
+
+        function refreshCard() {
+            if (!selected) return;
+            const b = selected;
+            if (b.dead) {
+                let into = b.mergedInto;
+                while (into && into.dead && into.mergedInto) into = into.mergedInto;
+                pcBody.innerHTML = `<p class="gone">${into === star ? 'Swallowed by the star' : into ? 'Merged into ' + (into.name || 'another planet') : 'Lost from the system'}.</p>`;
+                return;
+            }
+            if (b === star) {
+                const n = boundPlanets().length;
+                pcTitle.innerHTML = `<span class="dot" style="background:#fef9c3"></span>${starName || 'The star'}`;
+                pcBody.innerHTML = `<div class="kind">Star</div><div class="grid">` +
+                    `<span>Mass</span><span>${solarMasses(star.mass).toFixed(2)} M☉</span>` +
+                    `<span>Planets</span><span>${n}</span>` +
+                    `<span>Frost line</span><span>${(2.7 * Config.frostFactor).toFixed(1)} AU</span>` +
+                    `<span>Metallicity</span><span>[Fe/H] ${Config.feh >= 0 ? '+' : ''}${Config.feh.toFixed(2)}</span>` +
+                    `<span>Age</span><span>${((stepCount - Math.max(ignitionStep, 0)) * Config.MYR_PER_STEP_LIT).toFixed(1)} Myr lit</span></div>`;
+                return;
+            }
+            pcTitle.innerHTML = `<span class="dot" style="background:${bodyColor(b)}"></span>${b.name || 'Unnamed planet'}`;
+            if (!star) {
+                pcBody.innerHTML = '<div class="kind">Forming</div><p class="complabel">Details appear once the star has lit.</p>';
+                return;
+            }
+            const vx = b.vx - star.vx, vy = b.vy - star.vy, r = Math.hypot(b.x - star.x, b.y - star.y);
+            const bound = 0.5 * (vx * vx + vy * vy) < (Config.G * (star.mass + b.mass)) / r;
+            const d = bound ? describePlanet(b) : null;
+            const mass = b.mass >= 95 ? `${(b.mass / 317.8).toFixed(2)} M♃` : `${b.mass.toFixed(1)} M⊕`;
+            const rows = [];
+            if (d) {
+                const per = d.period < 2 ? `${(d.period * 365.25).toFixed(1)} days` : `${d.period.toFixed(2)} years`;
+                rows.push(['Orbit', `${d.aAU.toFixed(2)} AU`], ['Eccentricity', d.e.toFixed(2)], ['Period', per],
+                    ['Mass', mass], ['Radius', `${d.R.toFixed(2)} R⊕`], ['Density', `${d.density.toFixed(1)} g/cm³`],
+                    ['Gravity', `${(b.mass / (d.R * d.R)).toFixed(1)} g`], ['Temperature', `${Math.round(d.teq)} K`],
+                    ['Moons', d.moons]);
+            } else {
+                rows.push(['Orbit', 'escaping the system'], ['Mass', mass]);
+            }
+            const kind = d ? d.kind : 'Rogue planet';
+            const comp = (v, c) => (v ? `<div style="width:${v}%;background:${c}"></div>` : '');
+            const rp = Math.round(100 * b.rock / b.mass), ip = Math.round(100 * b.ice / b.mass), gp = Math.round(100 * b.gas / b.mass);
+            pcBody.innerHTML = `<div class="kind">${kind}${settled ? '' : ' (still forming)'}</div>` +
+                `<div class="grid">${rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('')}</div>` +
+                `<div class="comp">${comp(rp, '#b0835a')}${comp(ip, '#8fd0e0')}${comp(gp, '#d9a066')}</div>` +
+                `<div class="complabel">${[rp ? `rock ${rp}%` : '', ip ? `ice ${ip}%` : '', gp ? `H/He ${gp}%` : ''].filter(Boolean).join(' · ')}</div>`;
+        }
+
+        document.getElementById('pcClose').addEventListener('click', closeCard);
 
         // ------------------------------------------------------------------
         // Main loop: fixed physics steps, independent of the display's refresh rate
@@ -2526,6 +2657,7 @@
         if (window.innerWidth < 600) setPanel(false);
 
         window.addEventListener('keydown', (e) => {
+            if (e.code === 'Escape') closeCard();
             if (e.code === 'Space' && e.target === document.body) {
                 e.preventDefault();
                 togglePause();
@@ -2574,6 +2706,15 @@
                 return;
             }
             const s = aim.start;
+            // A click on a planet or the star opens its card; a click on empty space drops a planet
+            if (!aim.dragging) {
+                const hit = pickBody(s.x, s.y);
+                if (hit) {
+                    openCard(hit);
+                    aim = null;
+                    return;
+                }
+            }
             let vx = 0, vy = 0;
             const centre = heaviest || anchor;
             if (aim.dragging) {
