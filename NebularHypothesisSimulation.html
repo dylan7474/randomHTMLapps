@@ -469,6 +469,7 @@
             // Mass thresholds (solid mass for planetesimals)
             MASS_ASTEROID: 1.5,
             PEBBLE_DRIFT: 0.0006,    // Share of a parcel's dust that drifts one ring inwards per step
+            ISOLATION_MASS: 10,      // Earth masses that stop pebbles at the frost line (less closer in, more further out)
             DRIFT_BIN: 16,           // Width of those rings
             DUST_GROWTH: 120,        // ...and the cell grows by its own width for every this much distance from the core
             DUST_CELL: 24,           // Dust within a cell this wide gathers into one planetesimal
@@ -492,6 +493,8 @@
             ENVELOPE_LOSS: 0.004,
             STABLE_SPACING: 2.5,     // Planets closer than this many mutual Hill radii are unstable...
             STIR: 0.006,             // ...and get nudged by this fraction of their speed until they scatter or merge
+            HILL_LATE: 3.0,          // ...shrinking to this once the gas disk has gone (finished systems stay spaced out)
+            HILL_LATE_OUTER: 5.0,    // ...but beyond the frost line, where growth is slow, it stays wider
             HILL_MERGE: 6.0,         // Solid bodies merge when closer than this many mutual Hill radii
             MAX_CONTACT: 70,         // ...but never from further apart than this
             GAS_GRAVITY: 0.15,       // How hard gas lumps pull once a protostar exists (1 = full weight)
@@ -880,12 +883,27 @@
             }
             const cavity = Config.CAVITY * Config.CLOUD_RADIUS;
             const frac = Math.min(0.5, Config.PEBBLE_DRIFT * 5 * diskStrength());
+            // Pebble isolation: a planet heavy enough carves a gap whose pressure bump stops pebbles
+            // drifting past it, so they pile up outside it and build the next planet instead of
+            // feeding one big one (the heavier a disk's inner part is, the more it takes: it scales with
+            // the disk's thickness, which grows with distance)
+            const walls = [];
+            for (const b of bodies) {
+                if (!b.isSolid || b.dead || b.locked || b === star || b === coreBody) continue;
+                const r = Math.hypot(b.x - c.x, b.y - c.y);
+                if (b.mass >= Config.ISOLATION_MASS * Math.sqrt(Math.max(0.2, r / Math.max(frostR, 1)))) walls.push(r);
+            }
             for (const [k, list] of driftBins) {
                 if ((k + 0.5) * bin < cavity * 1.2) continue;
                 // The nearest populated ring further in
-                let inner = null;
-                for (let j = k - 1; j >= Math.max(0, k - 3) && !inner; j--) inner = driftBins.get(j) || null;
+                let inner = null, innerK = 0;
+                for (let j = k - 1; j >= Math.max(0, k - 3) && !inner; j--) {
+                    inner = driftBins.get(j) || null;
+                    innerK = j;
+                }
                 if (!inner) continue;
+                const rOut = (k + 0.5) * bin, rIn = (innerK + 0.5) * bin;
+                if (walls.some((w) => w > rIn && w <= rOut)) continue;
                 for (const b of list) {
                     const rock = b.rock * frac;
                     const ice = beyondFrost(b) ? b.ice * frac : 0;
@@ -1418,7 +1436,8 @@
             const c = coreBody || star;
             if (c && a.isSolid && b.isSolid) {
                 const r = Math.hypot((a.x + b.x) / 2 - c.x, (a.y + b.y) / 2 - c.y);
-                const hill = Config.HILL_MERGE * r * Math.cbrt((a.mass + b.mass) / (3 * c.mass));
+                const late = r < frostR ? Config.HILL_LATE : Config.HILL_LATE_OUTER;
+                const hill = (late + (Config.HILL_MERGE - late) * diskStrength()) * r * Math.cbrt((a.mass + b.mass) / (3 * c.mass));
                 d = Math.max(d, Math.min(hill, Config.MAX_CONTACT));
             }
             return d;
