@@ -520,11 +520,13 @@
             PEBBLE_DRIFT: 0.0006,    // Share of a parcel's dust that drifts one ring inwards per step
             ISOLATION_MASS: 20,      // Earth masses at H/r = 0.05 (Lambrechts et al. 2014); the scaling with distance is below
             DRIFT_BIN: 16,           // Width of those rings
+            COLD_BIRTH: false,       // Planetesimals are born on near-circular orbits (see formPlanetesimals)
             DUST_GROWTH: 120,        // ...and the cell grows by its own width for every this much distance from the core
             DUST_CELL: 24,           // Dust within a cell this wide gathers into one planetesimal
             PLANETESIMAL_MASS: 0.5,  // Condensed solids needed for a nebula parcel to become a planetesimal
             SUBLIMATION: 0.004,      // Share of its ice a small body loses per step inside the frost line
             MASS_PLANET: 4,
+            NAME_MIN_MASS: 1,        // Bound bodies at least this heavy (Earth masses) count as planets: named, listed and clickable
             MASS_GAS_GIANT: 30,
 
             // The core becomes a protostar, then ignites once it holds enough of the system's mass
@@ -917,7 +919,23 @@
                     if (b.mass < 0.02) b.dead = true;
                 }
                 const m = rock + ice;
-                bodies.push(new Body(x / m, y / m, vx / m, vy / m, rock, ice, 0, true));
+                let px = x / m, py = y / m, pvx = vx / m, pvy = vy / m;
+                if (Config.COLD_BIRTH) {
+                    // Dust settles into a thin, cold layer before it clumps, so planetesimals are born on
+                    // nearly circular orbits (velocity scatter ~ the disk's thickness, H/r), not with the
+                    // random motions of the collapsing gas they were carried in
+                    const rx = px - cx, ry = py - cy, r = Math.hypot(rx, ry);
+                    if (r > 5) {
+                        const Mr = anchor.mass + enclosed[Math.max(0, Math.min(ENCLOSED_BINS - 1, Math.floor(r / ((Config.CLOUD_RADIUS * 4) / ENCLOSED_BINS)) - 1))];
+                        const vc = Math.sqrt((Config.G * Mr) / r);
+                        const dir = rx * (pvy - anchor.vy) - ry * (pvx - anchor.vx) >= 0 ? 1 : -1;
+                        const hr = 0.033 * Math.pow(r / AU, 0.25);
+                        const a = Math.random() * Math.PI * 2, disp = hr * vc * Math.random();
+                        pvx = anchor.vx - (ry / r) * vc * dir + Math.cos(a) * disp;
+                        pvy = anchor.vy + (rx / r) * vc * dir + Math.sin(a) * disp;
+                    }
+                }
+                bodies.push(new Body(px, py, pvx, pvy, rock, ice, 0, true));
             }
         }
 
@@ -1854,7 +1872,7 @@
             if (!star) return [];
             const out = [];
             for (const b of bodies) {
-                if (!b.isSolid || b.locked || b.dead || b === star || b.mass < Config.MASS_PLANET) continue;
+                if (!b.isSolid || b.locked || b.dead || b === star || b.mass < Config.NAME_MIN_MASS) continue;
                 const vx = b.vx - star.vx, vy = b.vy - star.vy, r = Math.hypot(b.x - star.x, b.y - star.y);
                 if (0.5 * (vx * vx + vy * vy) < (Config.G * (star.mass + b.mass)) / r) out.push(b);
             }
@@ -1904,6 +1922,7 @@
             if (giant) kind = b.mass < 95 ? 'Sub-Saturn' : b.mass < 250 ? 'Saturn-like giant' : 'Jupiter-like giant';
             else if (b.type === 'ice_giant') kind = b.mass < 30 ? 'Mini-Neptune' : 'Ice giant';
             else if (b.type === 'icy') kind = b.mass < 10 ? 'Ice world' : 'Water-rich world';
+            else if (b.ice > b.rock && b.type === 'asteroid') kind = 'Ice world';
             else kind = b.mass < 1.5 ? 'Rocky planet' : b.mass < 10 ? 'Super-Earth' : 'Massive rocky planet';
             if (giant && period * 365.25 < 10) kind = 'Hot ' + kind;   // hot = orbital period under 10 days
             const solids = b.rock + b.ice || 1;
@@ -2260,44 +2279,6 @@
                 light = { x: core.x, y: core.y, strength: 0.3 + 0.4 * frac };
             }
 
-            // Solid bodies
-            ctx.globalCompositeOperation = 'source-over';
-            ctx.globalAlpha = 1;
-            for (const b of bodies) {
-                if (!b.isSolid || b === star || b === core) continue;
-                // Planets stay visible as discs even when zoomed right out
-                const minPx = b.mass >= Config.MASS_GAS_GIANT ? 3.5 : b.mass >= Config.MASS_PLANET ? 2.5 : 0.8;
-                const r = Math.max(b.radius, minPx / cam.scale);
-                if (!inView(b.x, b.y, r)) continue;
-                drawSolidBody(b, r, light);
-            }
-
-            // Names, once the system has settled
-            if (settled && showNames) {
-                ctx.globalCompositeOperation = 'source-over';
-                ctx.globalAlpha = 0.8;
-                ctx.fillStyle = '#dbe7ff';
-                ctx.textAlign = 'center';
-                ctx.font = `${11 / cam.scale}px ui-sans-serif, system-ui, sans-serif`;
-                for (const b of bodies) {
-                    if (!b.name || b.dead || !inView(b.x, b.y, 0)) continue;
-                    const r = Math.max(b.radius, 2.5 / cam.scale);
-                    ctx.fillText(b.name, b.x, b.y + r + 13 / cam.scale);
-                }
-                ctx.globalAlpha = 1;
-            }
-
-            if (selected && !selected.dead) {
-                ctx.globalCompositeOperation = 'source-over';
-                ctx.globalAlpha = 0.9;
-                ctx.strokeStyle = '#93c5fd';
-                ctx.lineWidth = 1.5 / cam.scale;
-                ctx.beginPath();
-                ctx.arc(selected.x, selected.y, Math.max((selected.visRadius || selected.radius) * 1.5, 9 / cam.scale), 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.globalAlpha = 1;
-            }
-
             // Protostar or star core
             if (star) {
                 const col = starColor(star.mass);
@@ -2338,6 +2319,49 @@
                 ctx.beginPath();
                 ctx.arc(core.x, core.y, r, 0, Math.PI * 2);
                 ctx.fill();
+            }
+
+            // Solid bodies
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+            for (const b of bodies) {
+                if (!b.isSolid || b === star || b === core) continue;
+                // Planets stay visible as discs even when zoomed right out
+                const minPx = b.mass >= Config.MASS_GAS_GIANT ? 3.5 : b.mass >= Config.MASS_PLANET ? 2.5 : 0.8;
+                const r = Math.max(b.radius, minPx / cam.scale);
+                if (!inView(b.x, b.y, r)) continue;
+                drawSolidBody(b, r, light);
+            }
+
+            // Names, once the system has settled
+            if (settled && showNames) {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.globalAlpha = 0.8;
+                ctx.fillStyle = '#dbe7ff';
+                ctx.textAlign = 'center';
+                ctx.font = `${11 / cam.scale}px ui-sans-serif, system-ui, sans-serif`;
+                for (const b of bodies) {
+                    if (!b.name || b.dead || !inView(b.x, b.y, 0)) continue;
+                    const r = Math.max(b.radius, 2.5 / cam.scale);
+                    // dark outline so a name stays readable over the star's glow
+                    ctx.lineWidth = 3 / cam.scale;
+                    ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+                    ctx.lineJoin = 'round';
+                    ctx.strokeText(b.name, b.x, b.y + r + 13 / cam.scale);
+                    ctx.fillText(b.name, b.x, b.y + r + 13 / cam.scale);
+                }
+                ctx.globalAlpha = 1;
+            }
+
+            if (selected && !selected.dead) {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.globalAlpha = 0.9;
+                ctx.strokeStyle = '#93c5fd';
+                ctx.lineWidth = 1.5 / cam.scale;
+                ctx.beginPath();
+                ctx.arc(selected.x, selected.y, Math.max((selected.visRadius || selected.radius) * 1.5, 9 / cam.scale), 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.globalAlpha = 1;
             }
 
             drawEffects();
@@ -2425,7 +2449,7 @@
             let planets = 0, moons = 0, gasMass = 0;
             for (const b of bodies) {
                 if (b.locked) moons++;
-                else if (star && b.isSolid && b.mass >= Config.MASS_PLANET && b !== star) planets++;
+                else if (star && b.isSolid && b.mass >= Config.NAME_MIN_MASS && b !== star) planets++;
                 if (!b.isSolid && b !== star && Math.hypot(b.x - anchor.x, b.y - anchor.y) < Config.CLOUD_RADIUS * 2) gasMass += b.mass;
             }
             ui.bodies.textContent = bodies.length;
@@ -2462,7 +2486,7 @@
             const moonsOf = new Map();
             for (const b of bodies) if (b.locked) moonsOf.set(b.moonOf, (moonsOf.get(b.moonOf) || 0) + 1);
             const list = bodies
-                .filter((b) => b.isSolid && !b.locked && b !== star && b !== coreBody && b.mass >= Config.MASS_PLANET)
+                .filter((b) => b.isSolid && !b.locked && b !== star && b !== coreBody && b.mass >= (star ? Config.NAME_MIN_MASS : Config.MASS_PLANET))
                 .map((b) => ({ b, d: Math.hypot(b.x - centre.x, b.y - centre.y) }))
                 .filter((e) => e.d < Config.CLOUD_RADIUS * 6)
                 .sort((e1, e2) => e1.d - e2.d)
@@ -2508,12 +2532,17 @@
 
         function pickBody(wx, wy) {
             let best = null, bestD = Infinity;
+            // The star is drawn much bigger than it is, so planets close to it must win over it
             for (const b of bodies) {
-                if (b.dead || b.locked) continue;
-                if (b !== star && !(b.isSolid && b.mass >= Config.MASS_PLANET)) continue;
+                if (b.dead || b.locked || b === star) continue;
+                if (b !== star && !(b.isSolid && b.mass >= Config.NAME_MIN_MASS)) continue;
                 const reach = Math.max((b.visRadius || b.radius) * 1.3, 14 / cam.scale);
                 const d = Math.hypot(b.x - wx, b.y - wy);
                 if (d < reach && d / reach < bestD) { best = b; bestD = d / reach; }
+            }
+            if (!best && star) {
+                const reach = Math.max(star.visRadius * 0.9, 14 / cam.scale);
+                if (Math.hypot(star.x - wx, star.y - wy) < reach) best = star;
             }
             return best;
         }
