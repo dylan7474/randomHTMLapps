@@ -448,6 +448,8 @@
                 <p class="note">Applies when the cloud restarts</p>
             </div>
 
+            <label class="check"><input type="checkbox" id="conserveToggle" checked> Gas keeps its spin (viscous spreading)</label>
+            <p class="note">On: gas that falls in passes its spin outwards, so the disk spreads like a real one. Off: the spin is simply deleted. Acts at once</p>
             <label class="check"><input type="checkbox" id="slowSpinToggle"> Realistic slow spin (β ≈ 0.03)</label>
             <p class="note">Real cores turn slowly and spin up as they fall in. Applies when the cloud restarts</p>
 
@@ -615,6 +617,8 @@
             get PARCEL_GAS_MAX() { return 1.5 * this.MASS_SCALE; },     // Most gas a nebula parcel holds; extra stays in neighbouring parcels
             GAS_STICK: 1.0,          // Contact distance multiplier when two gas particles meet
             HEADWIND: 0.1,           // How much orbital speed solids lose to the gas's headwind
+            CONSERVE_SPIN: true,     // Gas that loses orbital speed passes that angular momentum to the gas just outside it (viscous spreading), instead of losing it
+            RING_WIDTH: 10,          // World units: width of the gas rings that swap angular momentum
             GAS_HEADWIND: 0.1,       // How quickly gas itself loses orbital speed (viscosity feeding the star)
             CIRCULARIZE: 0.004,      // How quickly the disk rounds off planets' orbits (per step)
             PLANET_DRAG: 0.15,       // Drag factor for solid bodies (makes them migrate inwards)
@@ -1159,6 +1163,7 @@
         // Angular momentum is conserved by the N-body gravity, so as matter falls in, the star keeps
         // almost none of it and the rest ends up in the disk and planets.
         // ------------------------------------------------------------------
+        let ringL = new Float64Array(0), ringMR = new Float64Array(0), ringGain = new Float64Array(0);   // gas rings for spin exchange
         let spinInfo = null;
         const escaped = { L: 0, M: 0 };   // material flung out of the sim (approximate: about the cloud's centre)
         const SPIN_BINS = 24;
@@ -1242,8 +1247,8 @@
             const drift = spinInfo.L0 ? (t.L / spinInfo.L0 - 1) * 100 : 0;
             const lost = spinInfo.L0 ? (escaped.L / spinInfo.L0) * 100 : 0;
             const merged = spinInfo.L0 ? (spinSink.merged / spinInfo.L0) * 100 : 0;
-            const rest = 100 - (100 + drift) - lost - merged;   // what neither of those explains
-            spinEl.conserve.textContent = `Where the starting spin is now: ${(100 + drift).toFixed(0)}% still orbiting; ${merged.toFixed(0)}% locked into the rotation of merged bodies (real bodies would keep it as spin; the sim doesn't model it); ${lost.toFixed(0)}% flung out of the sim; ${rest.toFixed(0)}% removed by gas drag and the star's wind.`;
+            const rest = Math.max(0, 100 - (100 + drift) - lost - merged);   // what neither of those explains
+            spinEl.conserve.textContent = `Where the starting spin is now: ${(100 + drift).toFixed(0)}% still orbiting; ${merged.toFixed(0)}% locked into the rotation of merged bodies (real bodies would keep it as spin; the sim doesn't model it); ${lost.toFixed(0)}% flung out of the sim; ${rest.toFixed(0)}% carried off by gas that evaporated in the star's wind${Config.CONSERVE_SPIN ? '' : ' or deleted by gas drag'}.`;
 
             // j(r) plot, log-log
             const cv = spinEl.canvas, g = cv.getContext('2d'), W = cv.width, H = cv.height;
@@ -1945,6 +1950,9 @@
             // and slowly bleeds away its orbital speed (so it spirals in). It never adds spin.
             // Heavier bodies feel much less of it.
             const drag = Config.DRAG * 0.01 * diskStrength() * (dt / 0.1);
+            const ringN = Math.ceil((Config.CLOUD_RADIUS * 8) / Config.RING_WIDTH);
+            if (ringL.length !== ringN) { ringL = new Float64Array(ringN); ringMR = new Float64Array(ringN); }
+            ringL.fill(0); ringMR.fill(0);
             const circularize = Math.min(1, Config.DRAG * Config.CIRCULARIZE * diskStrength() * (dt / 0.1));
             if (drag > 0) {
                 for (const b of bodies) {
@@ -1968,6 +1976,11 @@
                     // Gas settles (outward motion is damped) but can still fall freely towards the star
                     let vr2 = vr * (1 - (b.isSolid || vr > 0 ? k : k * Config.INFALL_DAMPING));
                     let vt2 = vt * (1 - k * (b.isSolid ? Config.HEADWIND : Config.GAS_HEADWIND));
+                    if (Config.CONSERVE_SPIN && !b.isSolid && !h) {
+                        // Angular momentum this parcel loses, to be handed to the gas just outside it
+                        const ring = Math.min(ringN - 1, Math.floor(r / Config.RING_WIDTH));
+                        ringL[ring] += b.mass * r * (vt - vt2);
+                    }
 
                     // Planets embedded in the disk (and moonlets in a planet's disk) have their orbits
                     // rounded off by the gas, so they don't plunge in on long, thin orbits
@@ -1984,6 +1997,41 @@
                     }
                     b.vx = frame.vx + ux * vr2 - uy * vt2;
                     b.vy = frame.vy + uy * vr2 + ux * vt2;
+                }
+            }
+
+            // Viscous spreading: each gas ring gives the angular momentum it lost to the next ring out
+            // (the outermost keeps its own), so spin moves outwards instead of vanishing and the disk
+            // spreads as the inner gas falls in. Total spin is conserved by this exchange.
+            if (drag > 0 && Config.CONSERVE_SPIN) {
+                for (const b of bodies) {
+                    if (b.isSolid || b.locked || b.dead || (b === heaviest && anchorOnCore)) continue;
+                    const r = Math.hypot(b.x - anchor.x, b.y - anchor.y);
+                    if (r < 5) continue;
+                    ringMR[Math.min(ringN - 1, Math.floor(r / Config.RING_WIDTH))] += b.mass * r;
+                }
+                // carry each ring's loss outwards to the next ring that has gas
+                ringGain.length !== ringN && (ringGain = new Float64Array(ringN));
+                ringGain.fill(0);
+                let outer = -1;
+                for (let i = ringN - 1; i >= 0; i--) {
+                    const loss = ringL[i];
+                    if (loss === 0 && ringMR[i] === 0) continue;
+                    if (ringMR[i] <= 0) { if (outer >= 0) ringGain[outer] += loss; continue; }
+                    // the gain this ring gets comes from rings inside, handled below; the loss goes to `outer`
+                    ringGain[outer >= 0 ? outer : i] += loss;
+                    outer = i;
+                }
+                // gas inside the rings that lost nothing still gets nothing; apply the gains as a tangential kick
+                for (const b of bodies) {
+                    if (b.isSolid || b.locked || b.dead || (b === heaviest && anchorOnCore)) continue;
+                    const rx = b.x - anchor.x, ry = b.y - anchor.y, r = Math.hypot(rx, ry);
+                    if (r < 5) continue;
+                    const ring = Math.min(ringN - 1, Math.floor(r / Config.RING_WIDTH));
+                    if (!ringGain[ring] || ringMR[ring] <= 0) continue;
+                    const dv = ringGain[ring] / ringMR[ring];   // same speed gain for every parcel in the ring
+                    b.vx += (-ry / r) * dv;
+                    b.vy += (rx / r) * dv;
                 }
             }
 
@@ -2941,6 +2989,7 @@
         let showFrost = true, showNames = true;
         document.getElementById('namesToggle').addEventListener('change', (e) => { showNames = e.target.checked; });
         document.getElementById('varyToggle').addEventListener('change', (e) => { Config.VARY = e.target.checked; });
+        document.getElementById('conserveToggle').addEventListener('change', (e) => { Config.CONSERVE_SPIN = e.target.checked; });
         document.getElementById('slowSpinToggle').addEventListener('change', (e) => { Config.SLOW_SPIN = e.target.checked; });
         document.getElementById('frostToggle').addEventListener('change', (e) => { showFrost = e.target.checked; });
         document.getElementById('particleSelect').addEventListener('change', (e) => {
