@@ -576,6 +576,11 @@
             MOON_ESCAPE: 0.6,        // ...and are only lost beyond this (the real stability limit is ~0.5)
             IMPACT_MIN_MASS: 10,     // Smallest impactor that can blast debris into orbit
             IMPACT_GLANCING: 0.35,   // How off-centre a hit must be (0 = head-on, 1 = grazing)
+            PLANET_MAX_HILL: 0.33,   // A planet's drawn radius never exceeds this fraction of its Hill radius (real: <1%; the sim draws planets oversized)
+            SAT_MIN_GAS: 0.5,        // A planet this gas-rich has a circumplanetary disk (giants only), which builds regular satellites
+            SAT_MASS_RATIO: 2e-4,    // Total satellite mass / planet mass: Jupiter 2.1e-4, Saturn 2.5e-4, Uranus 1.0e-4 (Canup & Ward 2006: ~1e-4)
+            SAT_MIN_AU: 0.1,         // Not for hot giants: inside this their Hill sphere is too small and tides strip moons (my choice, not a sourced limit)
+            SAT_MOON_MIN: 0.05,      // Smallest satellite (Earth masses) so it stays a resolvable body (Ganymede is ~0.025)
             IMPACT_DEBRIS: 0.2,      // Fraction of the impactor thrown into orbit as moonlets
             INFALL_DAMPING: 0.1,     // How much gas falling inwards is slowed, relative to outward motion
             get PARCEL_GAS_MAX() { return 1.5 * this.MASS_SCALE; },     // Most gas a nebula parcel holds; extra stays in neighbouring parcels
@@ -639,6 +644,7 @@
         let impactCount = 0;      // giant impacts that threw debris into orbit
         let hitRunCount = 0;      // glancing hits where the smaller planet bounced off
         let moonAnnounced = false;
+        let moonSeenSteps = 0;
         let settled = false;      // the system has stopped changing: planets are named and described
         let lastPlanetCount = -1, lastPlanetChange = 0;
         let starName = '';
@@ -819,6 +825,13 @@
                 // A real star is tiny compared with its planets' orbits, so the core only sweeps up what
                 // passes very close to it, but it is still drawn big enough to see
                 this.radius = !this.isSolid && m > 200 ? this.visRadius * Config.CORE_SIZE : this.visRadius;
+                // The sim draws every planet far bigger than its true size relative to the orbit scale.
+                // A planet can never fill its own Hill sphere (a real Jupiter is ~0.2% of it), so cap the
+                // drawn and contact radius at a third of it (hill is kept up to date by assignHosts). Only planets with
+                // a real gas envelope: that is where the oversizing blocks moons, and rocky planets' dynamics stay as tuned.
+                if (this.isSolid && this !== star && this.hill > 0 && this.mass >= Config.MASS_PLANET && this.gas >= 0.1 * this.mass) {
+                    this.radius = Math.min(this.radius, Math.max(1.2, Config.PLANET_MAX_HILL * this.hill));
+                }
             }
 
             // Absorb the whole of another body, conserving momentum
@@ -1016,6 +1029,7 @@
             impactCount = 0;
             hitRunCount = 0;
             moonAnnounced = false;
+            moonSeenSteps = 0;
             settled = false;
             lastPlanetCount = -1;
             lastPlanetChange = 0;
@@ -1136,12 +1150,59 @@
             b.host = null;
         }
 
+        function seedSatellites(host, core) {
+            const aAU = Math.hypot(host.x - core.x, host.y - core.y) / AU;
+            if (aAU < Config.SAT_MIN_AU) return;
+            // The sim draws giants far larger than real ones relative to their Hill sphere (radius is
+            // 30-50% of it, a real Jupiter is ~0.2%), so real orbits (a few % of the Hill radius) would sit
+            // inside the drawn planet. So the stable zone is mapped onto the space between the drawn edge
+            // and the Hill radius, and satellites go in its inner 40%, up to 4 planet radii out.
+            // This is a scale compromise, not a sourced figure.
+            const inR = host.radius * 1.15;
+            const outR = Math.min(host.radius + 0.4 * (host.hill - host.radius), host.radius * 4);
+            if (outR < inR * 1.08) return;   // Hill sphere too small to hold any
+            const total = Math.min(host.gas * 0.5, Config.SAT_MASS_RATIO * host.mass);
+            const n = Math.max(1, Math.min(5, Math.floor(total / Config.SAT_MOON_MIN)));
+            const each = total / n;
+            if (each < Config.SAT_MOON_MIN * 0.5) return;
+            host.gas -= total;   // the satellites are built from the planet's own disk
+            host.updateProperties();
+            const icy = beyondFrost(host);
+            const a0 = Math.random() * Math.PI * 2;
+            for (let i = 0; i < n; i++) {
+                // Spaced geometrically so neighbours don't merge at once
+                const r = inR * Math.pow(outR / inR, n === 1 ? 0.5 : i / (n - 1));
+                const a = a0 + Math.random() * Math.PI * 2;
+                const v = circularSpeed(host.mass, r);
+                const ice = icy ? each * (0.2 + 0.6 * i / n) : 0;   // outer moons icier, as in Jupiter's
+                const f = new Body(
+                    host.x + Math.cos(a) * r, host.y + Math.sin(a) * r,
+                    host.vx - Math.sin(a) * v, host.vy + Math.cos(a) * v,
+                    each - ice, ice, 0, true
+                );
+                f.origin = 'circumplanetary';
+                bodies.push(f);
+                lockMoon(f, host);
+            }
+        }
+
         function assignHosts(core) {
             const hosts = [];
             for (const p of bodies) {
                 if (p === core || p.dead || p.locked || !p.isSolid || p.mass < Config.MASS_PLANET) continue;
                 p.hill = Math.hypot(p.x - core.x, p.y - core.y) * Math.cbrt(p.mass / (3 * core.mass));
+                if (p.hill > 0) p.updateProperties();   // re-applies the Hill-sphere cap on its radius
                 hosts.push(p);
+            }
+
+            // Giants grow a disk of gas and dust around themselves while they accrete, and it builds a
+            // family of regular satellites on prograde, near-circular orbits (the Galilean moons).
+            // Seeded once, when the envelope first outweighs the core.
+            for (const p of hosts) {
+                if (p.satellitesSeeded || p === core) continue;
+                if (p.gas < Config.SAT_MIN_GAS * p.mass) continue;
+                p.satellitesSeeded = true;
+                seedSatellites(p, core);
             }
 
             // Existing moons: follow their planet through mergers, fall in if it swells past
@@ -1158,7 +1219,9 @@
                 if (b.orbitR < (h.radius + b.radius) * Config.SOLID_HIT * 1.2) {
                     releaseMoon(b);
                     h.merge(b);
-                } else if (b.orbitR > Config.MOON_ESCAPE * h.hill) {
+                } else if (b.orbitR > (b.origin === 'circumplanetary'
+                    ? h.radius + 0.75 * (h.hill - h.radius)   // same mapped zone as seedSatellites
+                    : Config.MOON_ESCAPE * h.hill)) {
                     releaseMoon(b);
                 }
             }
@@ -1922,7 +1985,7 @@
             const R = planetRadius(b);
             const density = 5.51 * b.mass / (R * R * R);                                    // g/cm3
             let moons = 0;
-            for (const o of bodies) if (o.locked && o.moonOf === b) moons++;
+            for (const o of bodies) if (o.locked && !o.dead && o.moonOf === b) moons++;
             const giant = b.type === 'gas_giant';
             let kind;
             if (giant) kind = b.mass < 95 ? 'Sub-Saturn' : b.mass < 250 ? 'Saturn-like giant' : 'Jupiter-like giant';
@@ -2454,7 +2517,7 @@
             lastStats = now;
             let planets = 0, moons = 0, gasMass = 0;
             for (const b of bodies) {
-                if (b.locked) moons++;
+                if (b.locked) { if (!b.dead && b.moonOf && !b.moonOf.dead) moons++; }
                 else if (star && b.isSolid && b.mass >= Config.NAME_MIN_MASS && b !== star) planets++;
                 if (!b.isSolid && b !== star && Math.hypot(b.x - anchor.x, b.y - anchor.y) < Config.CLOUD_RADIUS * 2) gasMass += b.mass;
             }
@@ -2465,7 +2528,9 @@
             ui.planets.textContent = planets;
             ui.moons.textContent = moons;
             ui.impacts.textContent = impactCount;
-            if (moons > 0 && !moonAnnounced && star) {
+            // Announce only once a moon has survived a while (not one that is lost a moment later)
+            moonSeenSteps = moons > 0 && star ? moonSeenSteps + 1 : 0;
+            if (moonSeenSteps > 120 && !moonAnnounced) {
                 moonAnnounced = true;
                 showToast('A moon forms');
             }
@@ -2490,7 +2555,7 @@
         function updateSystemList() {
             const centre = coreBody || anchor;
             const moonsOf = new Map();
-            for (const b of bodies) if (b.locked) moonsOf.set(b.moonOf, (moonsOf.get(b.moonOf) || 0) + 1);
+            for (const b of bodies) if (b.locked && !b.dead && b.moonOf) moonsOf.set(b.moonOf, (moonsOf.get(b.moonOf) || 0) + 1);
             const list = bodies
                 .filter((b) => b.isSolid && !b.locked && b !== star && b !== coreBody && b.mass >= (star ? Config.NAME_MIN_MASS : Config.MASS_PLANET))
                 .map((b) => ({ b, d: Math.hypot(b.x - centre.x, b.y - centre.y) }))
