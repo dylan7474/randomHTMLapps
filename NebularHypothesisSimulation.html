@@ -574,7 +574,10 @@
             HILL_FRACTION: 0.5,      // Solid bodies this deep in a planet's Hill sphere feel its disk's drag
             MOON_ZONE: 0.4,          // Bound bodies inside this fraction of the Hill sphere become moons
             MOON_ESCAPE: 0.6,        // ...and are only lost beyond this (the real stability limit is ~0.5)
-            IMPACT_MIN_MASS: 10,     // Smallest impactor that can blast debris into orbit
+            IMPACT_MIN_RATIO: 0.05,  // Impactor / target mass needed to throw out a moon-forming disk (Canup 2004: ~0.03-0.1; Theia was ~0.1)
+            IMPACT_MIN_MASS: 0.1,    // ...and no impactor smaller than this (Earth masses) counts
+            MOON_HOST_MIN: 1,        // Planets this heavy (Earth masses) can hold moons; below that the sim treats them as bodies
+            DEBRIS_MIN: 0.01,        // Least debris (Earth masses) worth a moonlet; the Moon is 0.012
             IMPACT_GLANCING: 0.35,   // How off-centre a hit must be (0 = head-on, 1 = grazing)
             PLANET_MAX_HILL: 0.33,   // A planet's drawn radius never exceeds this fraction of its Hill radius (real: <1%; the sim draws planets oversized)
             SAT_MIN_GAS: 0.5,        // A planet this gas-rich has a circumplanetary disk (giants only), which builds regular satellites
@@ -1131,6 +1134,24 @@
             return Math.sqrt((Config.G * mass * r * r) / Math.pow(r * r + s, 1.5));
         }
 
+        // Where a planet's moons can live. The sim draws planets oversized next to their Hill sphere, so a
+        // real orbit (a few % of the Hill radius) would be inside the drawn planet. The stable zone is
+        // mapped onto the space between the drawn edge and the Hill radius instead (scale compromise).
+        function satelliteZone(h) {
+            const inR = h.radius * 1.15;
+            return {
+                inR,
+                outR: Math.min(h.radius + 0.4 * (h.hill - h.radius), h.radius * 4),
+                escR: h.radius + 0.75 * (h.hill - h.radius)
+            };
+        }
+
+        function hillRadius(p) {
+            const c = star || heaviest;
+            if (!c || c === p || c.mass <= 0) return 0;
+            return Math.hypot(p.x - c.x, p.y - c.y) * Math.cbrt(p.mass / (3 * c.mass));
+        }
+
         function lockMoon(b, h) {
             const rx = b.x - h.x, ry = b.y - h.y;
             const l = rx * (b.vy - h.vy) - ry * (b.vx - h.vx);
@@ -1153,13 +1174,7 @@
         function seedSatellites(host, core) {
             const aAU = Math.hypot(host.x - core.x, host.y - core.y) / AU;
             if (aAU < Config.SAT_MIN_AU) return;
-            // The sim draws giants far larger than real ones relative to their Hill sphere (radius is
-            // 30-50% of it, a real Jupiter is ~0.2%), so real orbits (a few % of the Hill radius) would sit
-            // inside the drawn planet. So the stable zone is mapped onto the space between the drawn edge
-            // and the Hill radius, and satellites go in its inner 40%, up to 4 planet radii out.
-            // This is a scale compromise, not a sourced figure.
-            const inR = host.radius * 1.15;
-            const outR = Math.min(host.radius + 0.4 * (host.hill - host.radius), host.radius * 4);
+            const { inR, outR } = satelliteZone(host);
             if (outR < inR * 1.08) return;   // Hill sphere too small to hold any
             const total = Math.min(host.gas * 0.5, Config.SAT_MASS_RATIO * host.mass);
             const n = Math.max(1, Math.min(5, Math.floor(total / Config.SAT_MOON_MIN)));
@@ -1189,7 +1204,7 @@
         function assignHosts(core) {
             const hosts = [];
             for (const p of bodies) {
-                if (p === core || p.dead || p.locked || !p.isSolid || p.mass < Config.MASS_PLANET) continue;
+                if (p === core || p.dead || p.locked || !p.isSolid || p.mass < Config.MOON_HOST_MIN) continue;
                 p.hill = Math.hypot(p.x - core.x, p.y - core.y) * Math.cbrt(p.mass / (3 * core.mass));
                 if (p.hill > 0) p.updateProperties();   // re-applies the Hill-sphere cap on its radius
                 hosts.push(p);
@@ -1219,8 +1234,8 @@
                 if (b.orbitR < (h.radius + b.radius) * Config.SOLID_HIT * 1.2) {
                     releaseMoon(b);
                     h.merge(b);
-                } else if (b.orbitR > (b.origin === 'circumplanetary'
-                    ? h.radius + 0.75 * (h.hill - h.radius)   // same mapped zone as seedSatellites
+                } else if (b.orbitR > (b.origin === 'circumplanetary' || b.origin === 'impact'
+                    ? satelliteZone(h).escR   // same mapped zone the satellites were placed in
                     : Config.MOON_ESCAPE * h.hill)) {
                     releaseMoon(b);
                 }
@@ -1367,9 +1382,12 @@
             // Debris is mostly the impactor's rock and ice
             const solids = impactor.rock + impactor.ice;
             const debris = Math.min(solids * Config.IMPACT_DEBRIS, host.rock + host.ice);
-            if (debris < Config.MASS_ASTEROID) return;
+            if (debris < Config.DEBRIS_MIN) return;
             const rockShare = solids > 0 ? impactor.rock / solids : 1;
-            const pieces = Math.max(1, Math.min(6, Math.floor(debris / Config.MASS_ASTEROID)));
+            if (!host.hill) host.hill = hillRadius(host);
+            const zone = satelliteZone(host);
+            if (!(host.hill > 0) || zone.outR < zone.inR * 1.08) return;   // Hill sphere too small to hold a moon: the debris falls back
+            const pieces = Math.max(1, Math.min(4, Math.round(debris / Config.DEBRIS_MIN)));
             let rockOut = Math.min(host.rock, debris * rockShare);
             let iceOut = Math.min(host.ice, debris - rockOut);
             rockOut = Math.min(host.rock, debris - iceOut);
@@ -1378,8 +1396,7 @@
             host.updateProperties();
             for (let i = 0; i < pieces; i++) {
                 const a = Math.random() * Math.PI * 2;
-                const minR = host.radius * Config.SOLID_HIT * 2.5;
-                const r = Math.max(minR, (host.hill || host.radius * 6) * (0.12 + Math.random() * 0.13));
+                const r = zone.inR + Math.random() * (zone.outR - zone.inR);
                 const v = circularSpeed(host.mass, r) * (0.95 + Math.random() * 0.1);
                 const f = new Body(
                     host.x + Math.cos(a) * r,
@@ -1615,7 +1632,8 @@
             if (a.isSolid && b.isSolid) {
                 const big = a.mass >= b.mass ? a : b, small = big === a ? b : a;
                 if (big.mass >= Config.MASS_PLANET && small.mass >= Config.MASS_ASTEROID && hitAndRun(big, small)) return;
-                const spin = small.mass >= Config.IMPACT_MIN_MASS ? glancingImpact(a, b, dx, dy) : 0;
+                const spin = big.mass >= Config.MOON_HOST_MIN && small.mass >= Math.max(Config.IMPACT_MIN_MASS, Config.IMPACT_MIN_RATIO * big.mass)
+                    ? glancingImpact(a, b, dx, dy) : 0;
                 const impactor = { rock: small.rock, ice: small.ice };
                 big.merge(small);
                 if (spin) spawnDebris(big, impactor, spin);
