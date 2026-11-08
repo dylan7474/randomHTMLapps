@@ -178,6 +178,13 @@
             margin: 4px 0 0;
         }
 
+        .spinbox { border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 6px 8px; }
+        .spinbox summary { cursor: pointer; font-size: 12px; color: #cbd5e1; }
+        .spinbox table { width: 100%; font-size: 11px; margin: 6px 0; border-collapse: collapse; }
+        .spinbox th { font-weight: 500; color: #6b7280; text-align: right; }
+        .spinbox td { padding: 1px 0; color: #cbd5e1; }
+        .spinbox td:not(:first-child) { text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+        #spinCanvas { width: 100%; height: auto; display: block; margin: 4px 0; background: rgba(0,0,0,0.25); border-radius: 6px; }
         .note {
             font-size: 10px;
             color: #6b7280;
@@ -441,6 +448,23 @@
                 <p class="note">Applies when the cloud restarts</p>
             </div>
 
+            <label class="check"><input type="checkbox" id="slowSpinToggle"> Realistic slow spin (β ≈ 0.03)</label>
+            <p class="note">Real cores turn slowly and spin up as they fall in. Applies when the cloud restarts</p>
+
+            <details id="spinPanel" class="spinbox">
+                <summary>Spin &amp; angular momentum</summary>
+                <div id="spinStart" class="note"></div>
+                <table id="spinTable">
+                    <tr><th></th><th>Mass</th><th>Spin (L)</th></tr>
+                    <tr><td>Star / core</td><td id="spMs">–</td><td id="spLs">–</td></tr>
+                    <tr><td>Planets &amp; solids</td><td id="spMp">–</td><td id="spLp">–</td></tr>
+                    <tr><td>Gas &amp; dust</td><td id="spMg">–</td><td id="spLg">–</td></tr>
+                </table>
+                <div class="note" id="spinConserve"></div>
+                <canvas id="spinCanvas" width="280" height="130"></canvas>
+                <div class="note">Spin per unit mass (j) against distance, both log scales. Grey: at the start. Orange: now. Dashed: the j of a circular orbit round the star; where the orange line meets it, matter is orbiting in a disk. Faint vertical line: frost line.</div>
+            </details>
+
             <div>
                 <label class="slider" for="dragSlider"><span>Gas Drag</span><span id="dragVal">1.0×</span></label>
                 <input type="range" id="dragSlider" min="0" max="3" step="0.1" value="1">
@@ -534,6 +558,8 @@
             // The core becomes a protostar, then ignites once it holds enough of the system's mass
             PROTOSTAR_FRACTION: 0.04,
             ANCHOR_FRACTION: 0.2,    // Gas orbits the core once it holds this much, else the centre of mass
+            SLOW_SPIN: false,        // Start with a realistic slow rotation instead of a nearly orbit-supported cloud
+            SLOW_BETA: 0.03,         // Rotational / gravitational energy of the cloud then (cores: median ~0.02, range 0.001-0.07; Goodman+1993, from memory)
             ROT_PROFILE: 0.7,        // 1 = solid-body rotation, 0 = same fraction of orbital speed everywhere
             JITTER: 0.1,             // Random velocity as a fraction of the edge orbital speed
             // Migration: planets trade angular momentum with the gas disk and drift inwards, bigger
@@ -843,6 +869,8 @@
             }
         }
 
+        const spinSink = { merged: 0 };   // spin that mergers would have turned into body rotation (not modelled)
+
         // Move some of one body's material into another, conserving momentum
         function absorb(t, s, rock, ice, gas) {
             let dm = rock + ice + gas;
@@ -855,6 +883,9 @@
                 dm = s.mass;
             }
             const m = t.mass + dm;
+            // The pair's own orbital angular momentum about their centre of mass. The sim merges them into
+            // a point with no spin, so this is where it goes; in reality it becomes the body's rotation.
+            spinSink.merged += ((t.mass * dm) / m) * ((s.x - t.x) * (s.vy - t.vy) - (s.y - t.y) * (s.vx - t.vx));
             t.vx = (t.vx * t.mass + s.vx * dm) / m;
             t.vy = (t.vy * t.mass + s.vy * dm) / m;
             t.x = (t.x * t.mass + s.x * dm) / m;
@@ -1092,6 +1123,155 @@
                 b.vx -= sysVx;
                 b.vy -= sysVy;
             }
+
+            // A real core turns slowly (its rotation is a few % of what would hold it up) and spins up
+            // as it falls in. Rescale the ordered rotation (not the random motion) to the target.
+            const beta0 = cloudBeta();
+            spinInfo = { beta: beta0, scaled: false };
+            if (Config.SLOW_SPIN && beta0 > 0) {
+                const f = Config.SPIN_MULTIPLIER * Math.sqrt(Config.SLOW_BETA / beta0);   // beta0 already includes the slider, so the slider still scales beta by itself squared
+                for (const b of bodies) {
+                    const dx = b.x, dy = b.y, r = Math.hypot(dx, dy) || 1;
+                    const vt = (-dy * b.vx + dx * b.vy) / r;   // tangential part (random jitter is small, 10%)
+                    const ux = -dy / r, uy = dx / r;
+                    b.vx += (f - 1) * vt * ux;
+                    b.vy += (f - 1) * vt * uy;
+                }
+                spinInfo = { beta: cloudBeta(), scaled: true };
+            }
+            spinInfo.rEdge = Config.CLOUD_RADIUS;
+            spinInfo.vEdge = Math.sqrt((Config.G * Config.TOTAL_MASS) / Config.CLOUD_RADIUS);
+            let jEdge = 0, nEdge = 0;
+            for (const b of bodies) {
+                const r = Math.hypot(b.x, b.y);
+                if (r > 0.9 * Config.CLOUD_RADIUS) { jEdge += b.x * b.vy - b.y * b.vx; nEdge++; }
+            }
+            spinInfo.jEdge = nEdge ? jEdge / nEdge : 0;
+            spinInfo.rc = (spinInfo.jEdge * spinInfo.jEdge) / (Config.G * Config.TOTAL_MASS) / AU;   // where edge gas would land if it fell in
+            spinInfo.vRatio = nEdge ? (spinInfo.jEdge / Config.CLOUD_RADIUS) / spinInfo.vEdge : 0;
+            escaped.L = 0; escaped.M = 0; spinSink.merged = 0;
+            spinInfo.profile = spinProfile();
+            spinInfo.L0 = spinTotals().L;
+        }
+
+        // ------------------------------------------------------------------
+        // Spin diagnostics: how much the cloud turns, and where the angular momentum ends up.
+        // Angular momentum is conserved by the N-body gravity, so as matter falls in, the star keeps
+        // almost none of it and the rest ends up in the disk and planets.
+        // ------------------------------------------------------------------
+        let spinInfo = null;
+        const escaped = { L: 0, M: 0 };   // material flung out of the sim (approximate: about the cloud's centre)
+        const SPIN_BINS = 24;
+
+        // Rotational energy over gravitational energy (beta), using each body's ordered tangential speed
+        function cloudBeta() {
+            const list = bodies.filter((b) => !b.dead).map((b) => ({ r: Math.hypot(b.x, b.y), m: b.mass, b }));
+            list.sort((p, q) => p.r - q.r);
+            let enclosed = 0, W = 0, T = 0;
+            for (const e of list) {
+                enclosed += e.m;
+                if (e.r > 1) W += (Config.G * e.m * enclosed) / e.r;
+                const b = e.b;
+                const vt = e.r > 0 ? (b.x * b.vy - b.y * b.vx) / e.r : 0;
+                T += 0.5 * e.m * vt * vt;
+            }
+            return W > 0 ? T / W : 0;
+        }
+
+        function spinFrame() {
+            let M = 0, cx = 0, cy = 0, cvx = 0, cvy = 0;
+            for (const b of bodies) {
+                if (b.dead) continue;
+                M += b.mass; cx += b.x * b.mass; cy += b.y * b.mass; cvx += b.vx * b.mass; cvy += b.vy * b.mass;
+            }
+            return M > 0 ? { M, cx: cx / M, cy: cy / M, cvx: cvx / M, cvy: cvy / M } : { M: 0, cx: 0, cy: 0, cvx: 0, cvy: 0 };
+        }
+
+        function spinTotals() {
+            const f = spinFrame();
+            const centre = star || heaviest;
+            const t = { L: 0, Ls: 0, Lp: 0, Lg: 0, Ms: 0, Mp: 0, Mg: 0, M: f.M };
+            for (const b of bodies) {
+                if (b.dead) continue;
+                const j = (b.x - f.cx) * (b.vy - f.cvy) - (b.y - f.cy) * (b.vx - f.cvx);
+                const L = b.mass * j;
+                t.L += L;
+                if (b === centre) { t.Ls += L; t.Ms += b.mass; }
+                else if (b.isSolid) { t.Lp += L; t.Mp += b.mass; }
+                else { t.Lg += L; t.Mg += b.mass; }
+            }
+            return t;
+        }
+
+        // Mean specific angular momentum j in log-spaced rings round the centre of mass
+        function spinProfile() {
+            const f = spinFrame();
+            const R = Config.CLOUD_RADIUS, r0 = 0.01 * R, r1 = 4 * R, lr = Math.log(r1 / r0);
+            const m = new Array(SPIN_BINS).fill(0), mj = new Array(SPIN_BINS).fill(0);
+            for (const b of bodies) {
+                if (b.dead) continue;
+                const dx = b.x - f.cx, dy = b.y - f.cy, r = Math.hypot(dx, dy);
+                if (r < r0 || r >= r1) continue;
+                const i = Math.floor((Math.log(r / r0) / lr) * SPIN_BINS);
+                m[i] += b.mass;
+                mj[i] += b.mass * (dx * (b.vy - f.cvy) - dy * (b.vx - f.cvx));
+            }
+            return m.map((mm, i) => ({ r: r0 * Math.exp(((i + 0.5) / SPIN_BINS) * lr), j: mm > 0 ? mj[i] / mm : null }));
+        }
+
+        const spinEl = {
+            panel: document.getElementById('spinPanel'),
+            start: document.getElementById('spinStart'),
+            conserve: document.getElementById('spinConserve'),
+            canvas: document.getElementById('spinCanvas'),
+            cells: ['spMs', 'spLs', 'spMp', 'spLp', 'spMg', 'spLg'].reduce((o, id) => (o[id] = document.getElementById(id), o), {})
+        };
+        let lastSpin = 0;
+
+        function updateSpinPanel(now) {
+            if (!spinInfo || !spinEl.panel.open || now - lastSpin < 500) return;
+            lastSpin = now;
+            const pc = (x) => (Math.abs(x) < 0.0005 ? '0%' : (x * 100).toFixed(x * 100 < 10 ? 1 : 0) + '%');
+            const t = spinTotals();
+            const c = spinEl.cells;
+            const L = t.L || 1e-9;
+            c.spMs.textContent = pc(t.Ms / t.M); c.spLs.textContent = pc(t.Ls / L);
+            c.spMp.textContent = pc(t.Mp / t.M); c.spLp.textContent = pc(t.Lp / L);
+            c.spMg.textContent = pc(t.Mg / t.M); c.spLg.textContent = pc(t.Lg / L);
+            spinEl.start.textContent = `At the start: spin energy ${(spinInfo.beta * 100).toFixed(1)}% of gravity's (real cores ≈ 2%); edge turns at ${(spinInfo.vRatio * 100).toFixed(0)}% of orbital speed; edge gas would land at ${spinInfo.rc.toFixed(2)} AU if it fell in without losing spin`;
+            const drift = spinInfo.L0 ? (t.L / spinInfo.L0 - 1) * 100 : 0;
+            const lost = spinInfo.L0 ? (escaped.L / spinInfo.L0) * 100 : 0;
+            const merged = spinInfo.L0 ? (spinSink.merged / spinInfo.L0) * 100 : 0;
+            const rest = 100 - (100 + drift) - lost - merged;   // what neither of those explains
+            spinEl.conserve.textContent = `Where the starting spin is now: ${(100 + drift).toFixed(0)}% still orbiting; ${merged.toFixed(0)}% locked into the rotation of merged bodies (real bodies would keep it as spin; the sim doesn't model it); ${lost.toFixed(0)}% flung out of the sim; ${rest.toFixed(0)}% removed by gas drag and the star's wind.`;
+
+            // j(r) plot, log-log
+            const cv = spinEl.canvas, g = cv.getContext('2d'), W = cv.width, H = cv.height;
+            g.clearRect(0, 0, W, H);
+            const prof = spinProfile(), R = Config.CLOUD_RADIUS;
+            const centre = star || heaviest;
+            const Mc = centre ? centre.mass : Config.TOTAL_MASS;
+            const jk = (r) => Math.sqrt(Config.G * Mc * r);
+            const all = spinInfo.profile.concat(prof).filter((p) => p.j !== null && p.j > 0);
+            if (!all.length) return;
+            const jmin = Math.min(...all.map((p) => p.j), jk(0.01 * R)) * 0.7, jmax = Math.max(...all.map((p) => p.j), jk(4 * R)) * 1.4;
+            const X = (r) => 6 + (Math.log(r / (0.01 * R)) / Math.log(400)) * (W - 12);
+            const Y = (j) => H - 6 - (Math.log(j / jmin) / Math.log(jmax / jmin)) * (H - 12);
+            const line = (pts, col, dash) => {
+                g.beginPath(); g.setLineDash(dash || []); g.strokeStyle = col; g.lineWidth = 1.5;
+                let pen = false;
+                for (const p of pts) {
+                    if (p.j === null || p.j <= 0) { pen = false; continue; }
+                    pen ? g.lineTo(X(p.r), Y(p.j)) : g.moveTo(X(p.r), Y(p.j));
+                    pen = true;
+                }
+                g.stroke(); g.setLineDash([]);
+            };
+            line(spinInfo.profile, 'rgba(148,163,184,0.7)');
+            line(prof, '#fb923c');
+            const kep = []; for (let i = 0; i <= 40; i++) { const r = 0.01 * R * Math.pow(400, i / 40); kep.push({ r, j: jk(r) }); }
+            line(kep, 'rgba(125,211,252,0.8)', [4, 3]);
+            if (frostR > 0) { g.strokeStyle = 'rgba(147,197,253,0.25)'; g.beginPath(); g.moveTo(X(frostR), 0); g.lineTo(X(frostR), H); g.stroke(); }
         }
 
         function injectGasCloud() {
@@ -1876,6 +2056,10 @@
                     const ex = b.x - anchor.x, ey = b.y - anchor.y;
                     if (ex * ex + ey * ey > escapeSq || !isFinite(b.x) || !isFinite(b.y)) {
                         if (b === star) star = null;
+                        if (isFinite(b.x + b.y + b.vx + b.vy)) {   // keep count of the spin and mass that left the sim
+                            escaped.L += b.mass * (ex * (b.vy - anchor.vy) - ey * (b.vx - anchor.vx));
+                            escaped.M += b.mass;
+                        }
                         b.dead = true;
                         continue;
                     }
@@ -2724,6 +2908,7 @@
             updateCamera(rdt, frame);
             render(now / 1000);
             updateStats(now);
+            updateSpinPanel(now);
         }
 
         // ------------------------------------------------------------------
@@ -2756,6 +2941,7 @@
         let showFrost = true, showNames = true;
         document.getElementById('namesToggle').addEventListener('change', (e) => { showNames = e.target.checked; });
         document.getElementById('varyToggle').addEventListener('change', (e) => { Config.VARY = e.target.checked; });
+        document.getElementById('slowSpinToggle').addEventListener('change', (e) => { Config.SLOW_SPIN = e.target.checked; });
         document.getElementById('frostToggle').addEventListener('change', (e) => { showFrost = e.target.checked; });
         document.getElementById('particleSelect').addEventListener('change', (e) => {
             Config.PARTICLES = e.target.value === 'auto' ? 'auto' : parseInt(e.target.value, 10);
